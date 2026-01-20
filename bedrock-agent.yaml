@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock Agent for CI Analysis Chatbot'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  
+  OpenSearchEndpoint:
+    Type: String
+    Description: OpenSearch domain endpoint
+  
+  MetadataBucket:
+    Type: String
+    Description: S3 bucket for metadata storage
+
+Resources:
+  # Bedrock Agent Execution Role
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'BedrockAgentRole-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:RetrieveAndGenerate
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${MetadataBucket}/*'
+              - Effect: Allow
+                Action:
+                  - es:ESHttpPost
+                  - es:ESHttpGet
+                Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt CIAnalysisFunction.Arn
+
+  # Lambda Function for CI Analysis Tools
+  CIAnalysisFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ci-analysis-tools-${Environment}'
+      Runtime: python3.11
+      Handler: ci_analysis_tools.lambda_handler
+      Role: !GetAtt CIAnalysisLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT: !Ref OpenSearchEndpoint
+          METADATA_BUCKET: !Ref MetadataBucket
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('CI Analysis Tools')}
+
+  # Lambda Role for CI Analysis
+  CIAnalysisLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CIAnalysisPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttpPost
+                  - es:ESHttpGet
+                  - es:ESHttpDelete
+                Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${MetadataBucket}/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: '*'
+
+  # Knowledge Base for CI Data
+  CIKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub 'ci-knowledge-base-${Environment}'
+      Description: 'Pharmaceutical Competitive Intelligence Knowledge Base'
+      RoleArn: !GetAtt BedrockAgentRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !Sub 'arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/ci-knowledge'
+          VectorIndexName: 'ci-vector-index'
+          FieldMapping:
+            VectorField: 'vector'
+            TextField: 'text'
+            MetadataField: 'metadata'
+
+  # Bedrock Agent for CI Analysis
+  CIAnalysisAgent:
+    Type: AWS::Bedrock::Agent
+    Properties:
+      AgentName: !Sub 'ci-analysis-agent-${Environment}'
+      Description: 'AI Assistant for Pharmaceutical Competitive Intelligence Analysis'
+      FoundationModel: 'anthropic.claude-3-sonnet-20240229-v1:0'
+      Instruction: |
+        You are a specialized AI assistant for pharmaceutical competitive intelligence analysis. 
+        
+        Your role is to help CI analysts with:
+        1. Brand competitive analysis and positioning
+        2. Clinical trial landscape assessment
+        3. Regulatory impact analysis
+        4. Patent and IP intelligence
+        5. Market opportunity identification
+        6. Risk assessment and threat analysis
+        
+        Always provide:
+        - Data-driven insights with source citations
+        - Quantitative analysis when possible
+        - Strategic recommendations
+        - Risk assessments with confidence scores
+        - Actionable next steps
+        
+        Focus on pharmaceutical brands as the primary unit of analysis.
+        Be precise, professional, and strategic in your responses.
+      
+      AgentResourceRoleArn: !GetAtt BedrockAgentRole.Arn
+      KnowledgeBases:
+        - KnowledgeBaseId: !Ref CIKnowledgeBase
+          Description: 'Pharmaceutical CI data and insights'
+          KnowledgeBaseState: ENABLED
+      
+      ActionGroups:
+        - ActionGroupName: 'competitive-analysis'
+          Description: 'Tools for competitive analysis'
+          ActionGroupExecutor:
+            Lambda: !GetAtt CIAnalysisFunction.Arn
+          FunctionSchema:
+            Functions:
+              - Name: 'analyze_brand_competition'
+                Description: 'Analyze competitive landscape for a pharmaceutical brand'
+                Parameters:
+                  brand_name:
+                    Type: 'string'
+                    Description: 'Name of the pharmaceutical brand to analyze'
+                    Required: true
+                  indication:
+                    Type: 'string'
+                    Description: 'Therapeutic indication (optional)'
+                    Required: false
+              
+              - Name: 'assess_clinical_trials'
+                Description: 'Assess clinical trial competitive threats'
+                Parameters:
+                  brand_name:
+                    Type: 'string'
+                    Description: 'Brand name to assess trials for'
+                    Required: true
+                  phase:
+                    Type: 'string'
+                    Description: 'Clinical trial phase filter'
+                    Required: false
+              
+              - Name: 'regulatory_impact_analysis'
+                Description: 'Analyze regulatory events impact on competition'
+                Parameters:
+                  event_type:
+                    Type: 'string'
+                    Description: 'Type of regulatory event (approval, safety, etc.)'
+                    Required: true
+                  timeframe:
+                    Type: 'string'
+                    Description: 'Analysis timeframe (30d, 90d, 1y)'
+                    Required: false
+              
+              - Name: 'patent_landscape_analysis'
+                Description: 'Analyze patent landscape and IP risks'
+                Parameters:
+                  brand_name:
+                    Type: 'string'
+                    Description: 'Brand to analyze patent landscape for'
+                    Required: true
+                  expiration_window:
+                    Type: 'string'
+                    Description: 'Patent expiration window (1y, 2y, 5y)'
+                    Required: false
+
+Outputs:
+  AgentId:
+    Description: 'Bedrock Agent ID'
+    Value: !Ref CIAnalysisAgent
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentId'
+  
+  AgentAliasId:
+    Description: 'Bedrock Agent Alias ID'
+    Value: !GetAtt CIAnalysisAgent.AgentAliasId
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentAliasId'
+  
+  KnowledgeBaseId:
+    Description: 'Knowledge Base ID'
+    Value: !Ref CIKnowledgeBase
+    Export:
+      Name: !Sub '${AWS::StackName}-KnowledgeBaseId'

@@ -1,0 +1,297 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock Agent for Pharmaceutical CI Analysis'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  
+  LambdaExecutionRoleArn:
+    Type: String
+    Description: ARN of Lambda execution role for agent
+
+Resources:
+  # Bedrock Agent for CI Analysis
+  CIAnalysisAgent:
+    Type: AWS::BedrockAgent::Agent
+    Properties:
+      AgentName: !Sub 'ci-analysis-agent-${Environment}'
+      AgentRoleArn: !GetAtt BedrockAgentRole.Arn
+      FoundationModel: 'anthropic.claude-3-sonnet-20240229-v1:0'
+      Description: 'AI Agent for pharmaceutical competitive intelligence analysis'
+      IdleSessionTTLInSeconds: 900
+      AutoPrepare: true
+      PromptOverrideConfiguration:
+        PromptTemplates:
+          - TemplateType: ORCHESTRATION
+            Template: |
+              You are an expert Pharmaceutical Competitive Intelligence Agent. Your role is to help CI analysts understand competitive landscapes, market dynamics, and strategic implications.
+              
+              You have access to tools for:
+              1. Analyzing competitive landscapes
+              2. Retrieving brand and trial data
+              3. Generating alerts and insights
+              4. Performing data quality checks
+              
+              When analyzing:
+              - Be precise and data-driven
+              - Provide actionable insights
+              - Cite specific data points
+              - Highlight competitive threats and opportunities
+              - Consider regulatory, clinical, and market factors
+              - Provide strategic recommendations
+              
+              Always ask clarifying questions if needed and maintain professional pharmaceutical terminology.
+
+  # IAM Role for Bedrock Agent
+  BedrockAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - es:ESHttpPost
+                  - es:ESHttpGet
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: '*'
+
+  # Agent Action Group for Data Retrieval
+  DataRetrievalActionGroup:
+    Type: AWS::BedrockAgent::AgentActionGroup
+    Properties:
+      AgentId: !Ref CIAnalysisAgent
+      ActionGroupName: DataRetrieval
+      Description: 'Retrieve competitive intelligence data'
+      ActionGroupExecutor:
+        Lambda: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ci-agent-tools-${Environment}'
+      ApiSchema:
+        Payload: |
+          {
+            "openapi": "3.0.0",
+            "info": {
+              "title": "CI Data Retrieval API",
+              "version": "1.0.0"
+            },
+            "paths": {
+              "/brands/search": {
+                "post": {
+                  "summary": "Search for pharmaceutical brands",
+                  "parameters": [
+                    {
+                      "name": "query",
+                      "in": "query",
+                      "required": true,
+                      "schema": {"type": "string"}
+                    }
+                  ],
+                  "responses": {
+                    "200": {
+                      "description": "Brand search results"
+                    }
+                  }
+                }
+              },
+              "/trials/search": {
+                "post": {
+                  "summary": "Search clinical trials",
+                  "parameters": [
+                    {
+                      "name": "query",
+                      "in": "query",
+                      "required": true,
+                      "schema": {"type": "string"}
+                    }
+                  ],
+                  "responses": {
+                    "200": {
+                      "description": "Trial search results"
+                    }
+                  }
+                }
+              },
+              "/competitive-landscape": {
+                "post": {
+                  "summary": "Analyze competitive landscape",
+                  "parameters": [
+                    {
+                      "name": "brand",
+                      "in": "query",
+                      "required": true,
+                      "schema": {"type": "string"}
+                    }
+                  ],
+                  "responses": {
+                    "200": {
+                      "description": "Competitive landscape analysis"
+                    }
+                  }
+                }
+              },
+              "/alerts": {
+                "get": {
+                  "summary": "Get competitive alerts",
+                  "parameters": [
+                    {
+                      "name": "severity",
+                      "in": "query",
+                      "schema": {"type": "string"}
+                    },
+                    {
+                      "name": "brand",
+                      "in": "query",
+                      "schema": {"type": "string"}
+                    }
+                  ],
+                  "responses": {
+                    "200": {
+                      "description": "List of alerts"
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+  # Agent Action Group for Analysis
+  AnalysisActionGroup:
+    Type: AWS::BedrockAgent::AgentActionGroup
+    Properties:
+      AgentId: !Ref CIAnalysisAgent
+      ActionGroupName: Analysis
+      Description: 'Perform competitive intelligence analysis'
+      ActionGroupExecutor:
+        Lambda: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:ci-agent-tools-${Environment}'
+      ApiSchema:
+        Payload: |
+          {
+            "openapi": "3.0.0",
+            "info": {
+              "title": "CI Analysis API",
+              "version": "1.0.0"
+            },
+            "paths": {
+              "/analyze/competitive-position": {
+                "post": {
+                  "summary": "Analyze competitive position",
+                  "requestBody": {
+                    "required": true,
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "brand": {"type": "string"},
+                            "competitors": {"type": "array", "items": {"type": "string"}},
+                            "timeframe": {"type": "string"}
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "responses": {
+                    "200": {
+                      "description": "Competitive position analysis"
+                    }
+                  }
+                }
+              },
+              "/analyze/market-opportunity": {
+                "post": {
+                  "summary": "Analyze market opportunities",
+                  "requestBody": {
+                    "required": true,
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "indication": {"type": "string"},
+                            "brands": {"type": "array", "items": {"type": "string"}}
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "responses": {
+                    "200": {
+                      "description": "Market opportunity analysis"
+                    }
+                  }
+                }
+              },
+              "/analyze/threat-assessment": {
+                "post": {
+                  "summary": "Assess competitive threats",
+                  "requestBody": {
+                    "required": true,
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "brand": {"type": "string"},
+                            "threatType": {"type": "string"}
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "responses": {
+                    "200": {
+                      "description": "Threat assessment results"
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+  # Agent Alias for deployment
+  CIAnalysisAgentAlias:
+    Type: AWS::BedrockAgent::AgentAlias
+    Properties:
+      AgentId: !Ref CIAnalysisAgent
+      AgentAliasName: !Sub 'ci-analysis-${Environment}'
+      Description: 'Production alias for CI analysis agent'
+
+Outputs:
+  AgentId:
+    Description: 'Bedrock Agent ID'
+    Value: !Ref CIAnalysisAgent
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentId'
+  
+  AgentAliasId:
+    Description: 'Bedrock Agent Alias ID'
+    Value: !Ref CIAnalysisAgentAlias
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentAliasId'
+  
+  AgentRoleArn:
+    Description: 'Bedrock Agent Role ARN'
+    Value: !GetAtt BedrockAgentRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentRoleArn'
