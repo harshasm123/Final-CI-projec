@@ -41,6 +41,40 @@ echo "Region: $REGION"
 echo "Stack Name: $STACK_NAME"
 echo ""
 
+# Step 0: Check and cleanup failed stacks
+log_info "Checking for failed stacks..."
+STACK_STATUS=$(aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME \
+    --region $REGION \
+    --query 'Stacks[0].StackStatus' \
+    --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+if [ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" == "CREATE_FAILED" ] || [ "$STACK_STATUS" == "UPDATE_FAILED" ]; then
+    log_warning "Stack is in $STACK_STATUS state. Cleaning up..."
+    
+    # Delete the failed stack
+    aws cloudformation delete-stack \
+        --stack-name $STACK_NAME \
+        --region $REGION
+    
+    log_info "Waiting for stack deletion to complete (this may take a few minutes)..."
+    aws cloudformation wait stack-delete-complete \
+        --stack-name $STACK_NAME \
+        --region $REGION 2>/dev/null || true
+    
+    log_success "Failed stack cleaned up successfully"
+    echo ""
+elif [ "$STACK_STATUS" != "DOES_NOT_EXIST" ]; then
+    log_warning "Stack exists with status: $STACK_STATUS"
+    read -p "Do you want to continue with update? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_error "Deployment cancelled by user"
+        exit 1
+    fi
+fi
+echo ""
+
 # Step 1: Prerequisites Check
 log_info "Running prerequisites check..."
 if [ -f "prereq.sh" ]; then
