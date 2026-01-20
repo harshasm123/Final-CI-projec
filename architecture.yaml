@@ -44,10 +44,6 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub 'ci-alert-processed-${Environment}-${AWS::AccountId}'
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt ProcessDocumentFunction.Arn
 
   # OpenSearch Domain
   OpenSearchDomain:
@@ -498,7 +494,9 @@ Resources:
 
   APIDeployment:
     Type: AWS::ApiGateway::Deployment
-    DependsOn: APIMethod
+    DependsOn: 
+      - APIMethod
+      - APILambdaPermission
     Properties:
       RestApiId: !Ref RestAPI
       StageName: !Ref Environment
@@ -539,6 +537,17 @@ Resources:
       Principal: s3.amazonaws.com
       SourceArn: !GetAtt ProcessedDataBucket.Arn
 
+  # S3 Notification Configuration (after Lambda permission)
+  ProcessedDataBucketNotification:
+    Type: AWS::S3::Bucket
+    DependsOn: ProcessLambdaPermission
+    Properties:
+      BucketName: !Sub 'ci-alert-processed-${Environment}-${AWS::AccountId}'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessDocumentFunction.Arn
+
   # PHASE 3 Lambda Permissions
   AIHandlerLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -546,6 +555,7 @@ Resources:
       FunctionName: !Ref AIHandlerFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   AlertHandlerLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -553,6 +563,7 @@ Resources:
       FunctionName: !Ref AlertHandlerFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   CompetitiveAnalysisLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -560,6 +571,7 @@ Resources:
       FunctionName: !Ref CompetitiveAnalysisFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   BrandHandlerLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -567,6 +579,7 @@ Resources:
       FunctionName: !Ref BrandHandlerFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   DashboardHandlerLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -574,6 +587,7 @@ Resources:
       FunctionName: !Ref DashboardHandlerFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   DataQualityCheckLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -581,6 +595,7 @@ Resources:
       FunctionName: !Ref DataQualityCheckFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
+      SourceArn: !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*'
 
   ChatbotHandlerLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -588,7 +603,7 @@ Resources:
       FunctionName: !Ref ChatbotHandlerFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub '${RestAPI}/*/POST/*'
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/*'
 
 Outputs:
   APIEndpoint:

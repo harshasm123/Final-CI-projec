@@ -54,6 +54,27 @@ else
 fi
 echo ""
 
+# Step 1.5: Install zip if not available
+log_info "Checking for zip utility..."
+if ! command -v zip &> /dev/null; then
+    log_warning "zip not found. Installing..."
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq zip
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y -q zip
+    elif command -v brew &> /dev/null; then
+        brew install zip
+    else
+        log_error "Could not install zip. Please install manually."
+        exit 1
+    fi
+    log_success "zip installed successfully"
+else
+    log_success "zip is available"
+fi
+echo ""
+
 # Step 2: Create S3 bucket for deployment artifacts
 log_info "Creating deployment bucket..."
 BUCKET_NAME="pharma-ci-deployment-${ENVIRONMENT}-$(date +%s)"
