@@ -143,22 +143,28 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
+                  - s3:ListBucket
                 Resource:
-                  - !Sub '${DataLakeBucket}/*'
-                  - !Sub '${ProcessedDataBucket}/*'
+                  - !GetAtt DataLakeBucket.Arn
+                  - !Sub '${DataLakeBucket.Arn}/*'
+                  - !GetAtt ProcessedDataBucket.Arn
+                  - !Sub '${ProcessedDataBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - es:ESHttpPost
                   - es:ESHttpPut
                   - es:ESHttpGet
                   - es:ESHttpDelete
-                Resource: !GetAtt OpenSearchDomain.Arn
+                Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/ci-search-${Environment}/*'
               - Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource: !Sub '${MetadataBucket}/*'
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt MetadataBucket.Arn
+                  - !Sub '${MetadataBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
@@ -177,7 +183,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - sns:Publish
-                Resource: !Ref AlertTopic
+                Resource: !GetAtt AlertTopic.TopicArn
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -188,6 +194,10 @@ Resources:
                 Resource:
                   - !GetAtt ConversationTable.Arn
                   - !Sub '${ConversationTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:ci-*'
 
   # SNS Topic for Alerts
   AlertTopic:
