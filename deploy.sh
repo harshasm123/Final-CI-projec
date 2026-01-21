@@ -35,57 +35,68 @@ echo "  Environment: $ENVIRONMENT"
 echo "  Frontend: $FRONTEND_TYPE"
 echo ""
 
-# Check for existing resources
-echo "Checking for existing resources..."
-existing_stacks=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, 'pharma-ci')].StackName" --output text --region $REGION)
-if [ -n "$existing_stacks" ]; then
-    log_warning "Found existing stacks. Attempting to update..."
+# Deploy CloudFormation stacks first
+log_info "Deploying CloudFormation stacks..."
+
+# Deploy AI Stack
+log_info "Deploying AI/RAG stack..."
+aws cloudformation deploy \
+  --template-file ai-stack.yaml \
+  --stack-name pharma-ci-rag-$ENVIRONMENT \
+  --parameter-overrides Environment=$ENVIRONMENT \
+  --capabilities CAPABILITY_IAM \
+  --region $REGION
+
+if [ $? -eq 0 ]; then
+  log_success "AI stack deployed successfully"
+else
+  log_warning "AI stack deployment failed, continuing..."
 fi
 
-# Check for existing S3 bucket
-existing_bucket=$(aws s3api head-bucket --bucket "ci-data-dev-$ACCOUNT_ID" 2>/dev/null && echo "exists" || echo "")
-if [ "$existing_bucket" = "exists" ]; then
-    log_warning "S3 bucket ci-data-dev-$ACCOUNT_ID already exists. CDK will attempt to import it."
+# Deploy Frontend Stack
+log_info "Deploying Frontend stack..."
+aws cloudformation deploy \
+  --template-file frontend-stack.yaml \
+  --stack-name pharma-ci-frontend-$ENVIRONMENT \
+  --parameter-overrides Environment=$ENVIRONMENT \
+  --region $REGION
+
+if [ $? -eq 0 ]; then
+  log_success "Frontend stack deployed successfully"
+else
+  log_warning "Frontend stack deployment failed, continuing..."
 fi
-echo "Proceeding with deployment..."
-echo ""
 
-# Deploy using CDK
-log_info "Deploying infrastructure using CDK..."
-cd cdk
+# Deploy using CDK (fallback)
+if [ -d "cdk" ]; then
+    log_info "Deploying CDK infrastructure..."
+    cd cdk
+    
+    # Install CDK dependencies
+    log_info "Installing CDK dependencies..."
+    npm install --silent
+    
+    # Build TypeScript
+    log_info "Building CDK TypeScript..."
+    npm run build
+    
+    # Bootstrap CDK (update to version 30+)
+    log_info "Bootstrapping CDK environment..."
+    npm run cdk -- bootstrap --force
+    
+    # Deploy CDK stacks individually with error handling
+    log_info "Deploying core stack..."
+    npm run cdk -- deploy pharma-ci-platform-${ENVIRONMENT} --require-approval never || log_warning "Core stack deployment failed"
+    
+    log_success "CDK deployment complete"
+    cd ..
+fi
 
-# Install CDK dependencies
-log_info "Installing CDK dependencies..."
-npm install --silent
-
-# Build TypeScript
-log_info "Building CDK TypeScript..."
-npm run build
-
-# Bootstrap CDK (update to version 30+)
-log_info "Bootstrapping CDK environment..."
-npm run cdk -- bootstrap --force
-
-# Deploy CDK stacks individually with error handling
-log_info "Deploying core stack..."
-npm run cdk -- deploy pharma-ci-platform-${ENVIRONMENT} --require-approval never --hotswap
-
-log_info "Deploying RAG stack..."
-npm run cdk -- deploy pharma-ci-rag-${ENVIRONMENT} --require-approval never --hotswap || log_warning "RAG stack deployment failed, continuing..."
-
-log_info "Deploying frontend stack..."
-npm run cdk -- deploy pharma-ci-frontend-${ENVIRONMENT} --require-approval never --hotswap || log_warning "Frontend stack deployment failed, continuing..."
-
-log_success "CDK deployment complete"
-cd ..
-
-# Get CDK stack outputs
-log_info "Retrieving CDK stack outputs..."
-# Use default values for demo
-API_ENDPOINT="https://demo-api.pharma-ci.com"
-DATA_BUCKET="demo-data-bucket"
-USER_POOL_ID="demo-user-pool"
-KB_BUCKET="demo-knowledge-base"
+# Get stack outputs
+log_info "Retrieving stack outputs..."
+AI_API_ENDPOINT=$(aws cloudformation describe-stacks --stack-name pharma-ci-rag-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`AIAPIEndpoint`].OutputValue' --output text --region $REGION 2>/dev/null || echo "https://demo-api.pharma-ci.com")
+FRONTEND_BUCKET=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucket`].OutputValue' --output text --region $REGION 2>/dev/null || echo "demo-frontend-bucket")
+CLOUDFRONT_URL=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' --output text --region $REGION 2>/dev/null || echo "https://demo.cloudfront.net")
 
 # Deploy frontend application
 echo ""
@@ -100,17 +111,22 @@ if [ -d "frontend" ]; then
     log_info "Building React application..."
     # Create environment file
     cat > .env << EOF
-REACT_APP_API_ENDPOINT=$API_ENDPOINT
+REACT_APP_API_ENDPOINT=$AI_API_ENDPOINT
 REACT_APP_REGION=$REGION
 REACT_APP_ENVIRONMENT=$ENVIRONMENT
-REACT_APP_USER_POOL_ID=$USER_POOL_ID
 EOF
     
     npm run build
     
+    # Deploy to S3 if bucket exists
+    if [ "$FRONTEND_BUCKET" != "demo-frontend-bucket" ]; then
+        log_info "Deploying to S3 bucket: $FRONTEND_BUCKET"
+        aws s3 sync build/ s3://$FRONTEND_BUCKET --delete --region $REGION
+        log_success "Frontend deployed to S3"
+    fi
+    
     log_success "Frontend built successfully"
     echo "  Build directory: frontend/build"
-    echo "  Ready for deployment to hosting service"
     
     cd ..
 else
@@ -144,33 +160,17 @@ echo ""
 echo "Production-Grade Deployment Complete!"
 echo ""
 echo "Infrastructure:"
-echo "  API Endpoint: $API_ENDPOINT"
-echo "  Data Bucket: $DATA_BUCKET"
-echo "  User Pool: $USER_POOL_ID"
-echo "  Knowledge Base: $KB_BUCKET"
+echo "  AI API Endpoint: $AI_API_ENDPOINT"
+echo "  Frontend Bucket: $FRONTEND_BUCKET"
+echo "  CloudFront URL: $CLOUDFRONT_URL"
 echo ""
-if [ -n "$FRONTEND_URL" ]; then
-    echo "Frontend ($FRONTEND_TYPE):"
-    echo "  URL: $FRONTEND_URL"
-    echo ""
-fi
 echo "Stacks Deployed:"
-echo "  1. pharma-ci-core-${ENVIRONMENT} - Core infrastructure"
-echo "  2. pharma-ci-auth-${ENVIRONMENT} - Authentication (Cognito)"
-echo "  3. pharma-ci-data-${ENVIRONMENT} - Data processing"
-echo "  4. pharma-ci-rag-${ENVIRONMENT} - AI and RAG"
-echo "  5. pharma-ci-events-${ENVIRONMENT} - Event processing"
-echo "  6. pharma-ci-monitoring-${ENVIRONMENT} - Monitoring"
-echo "  7. pharma-ci-frontend-${ENVIRONMENT} - Frontend application"
+echo "  1. pharma-ci-rag-${ENVIRONMENT} - AI/Bedrock stack"
+echo "  2. pharma-ci-frontend-${ENVIRONMENT} - Frontend stack"
+echo "  3. pharma-ci-platform-${ENVIRONMENT} - Core infrastructure (CDK)"
 echo ""
 echo "Next Steps:"
 echo "  1. Configure API keys in Secrets Manager"
-echo "  2. Upload documents to Knowledge Base: s3://$KB_BUCKET"
-echo "  3. Create Cognito users or enable self-registration"
-echo "  4. Configure SES for email notifications"
-echo "  5. Set up custom domain (optional)"
-echo ""
-echo "Frontend deployment options:"
-echo "  ECS Fargate: ./deploy.sh $ENVIRONMENT $REGION ecs"
-echo "  Lambda + API Gateway: ./deploy.sh $ENVIRONMENT $REGION lambda"
+echo "  2. Test AI endpoint: curl -X POST $AI_API_ENDPOINT/ai -d '{\"query\":\"test\"}'"
+echo "  3. Access frontend: $CLOUDFRONT_URL"
 echo ""

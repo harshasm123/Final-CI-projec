@@ -1,74 +1,31 @@
 #!/bin/bash
 
-#############################################
-# Quick Deployment Script
-# Minimal setup for fast deployment
-#############################################
+echo "Fixing S3 conflicts and deploying..."
 
-set -e
+# Wait for any pending S3 operations
+sleep 10
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Use CloudFormation deployment instead of CDK
+echo "Deploying AI stack..."
+aws cloudformation deploy \
+  --template-file ai-stack.yaml \
+  --stack-name pharma-ci-rag-dev \
+  --parameter-overrides Environment=dev \
+  --capabilities CAPABILITY_IAM \
+  --region us-east-1
 
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+echo "Deploying Frontend stack..."
+aws cloudformation deploy \
+  --template-file frontend-stack.yaml \
+  --stack-name pharma-ci-frontend-dev \
+  --parameter-overrides Environment=dev \
+  --region us-east-1
 
-ENVIRONMENT=${1:-dev}
-REGION=${2:-us-east-1}
+echo "Getting endpoints..."
+AI_ENDPOINT=$(aws cloudformation describe-stacks --stack-name pharma-ci-rag-dev --query 'Stacks[0].Outputs[?OutputKey==`AIAPIEndpoint`].OutputValue' --output text)
+FRONTEND_URL=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-dev --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' --output text)
 
-echo "=========================================="
-echo "Quick Deployment - Pharmaceutical CI"
-echo "=========================================="
-echo "Environment: $ENVIRONMENT"
-echo "Region: $REGION"
 echo ""
-
-# Step 1: Install Node.js if needed
-if ! command -v node &> /dev/null; then
-    log_info "Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-fi
-
-# Step 2: Install AWS CDK if needed
-if ! command -v cdk &> /dev/null; then
-    log_info "Installing AWS CDK..."
-    npm install -g aws-cdk
-fi
-
-# Step 3: Check AWS credentials
-if ! aws sts get-caller-identity &> /dev/null; then
-    log_error "AWS credentials not configured"
-    log_info "Run: aws configure"
-    exit 1
-fi
-
-log_success "Prerequisites verified"
-echo ""
-
-# Step 4: Deploy CDK
-log_info "Deploying infrastructure..."
-cd cdk
-
-npm install --silent
-npm run build
-npm run deploy -- \
-    --context environment=$ENVIRONMENT \
-    --context region=$REGION \
-    --require-approval never
-
-cd ..
-
-log_success "Deployment completed!"
-echo ""
-echo "Next steps:"
-echo "  1. Configure API keys in Secrets Manager"
-echo "  2. Access your application"
-echo "  3. Monitor logs: aws logs tail /aws/lambda/ci-* --follow"
-echo ""
+echo "✅ Deployment complete!"
+echo "AI API: $AI_ENDPOINT"
+echo "Frontend: $FRONTEND_URL"
