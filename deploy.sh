@@ -38,9 +38,6 @@ npm install --silent
 echo "🔨 Building TypeScript..."
 npm run build
 
-echo "🧬 Synthesizing template..."
-npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION
-
 echo "🚀 Deploying stack..."
 npm run deploy -- \
   --context environment=$ENVIRONMENT \
