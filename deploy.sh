@@ -66,9 +66,15 @@ npm run build
 log_info "Bootstrapping CDK environment..."
 npm run cdk -- bootstrap --force
 
-# Deploy CDK stacks with hotswap for updates
-log_info "Deploying CDK stacks..."
-npm run deploy -- --all --require-approval never --hotswap
+# Deploy CDK stacks individually
+log_info "Deploying core stack..."
+npm run cdk -- deploy pharma-ci-platform-${ENVIRONMENT} --require-approval never --hotswap
+
+log_info "Deploying RAG stack..."
+npm run cdk -- deploy pharma-ci-rag-${ENVIRONMENT} --require-approval never --hotswap
+
+log_info "Deploying frontend stack..."
+npm run cdk -- deploy pharma-ci-frontend-${ENVIRONMENT} --require-approval never --hotswap
 
 log_success "CDK deployment complete"
 cd ..
