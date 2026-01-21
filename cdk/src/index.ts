@@ -6,7 +6,7 @@ import { FrontendSimpleStack } from './stacks/frontend-simple-stack';
 const app = new cdk.App();
 
 const environment = app.node.tryGetContext('environment') || 'dev';
-const region = app.node.tryGetContext('region') || 'us-west-2';
+const region = app.node.tryGetContext('region') || 'us-east-1';
 
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,

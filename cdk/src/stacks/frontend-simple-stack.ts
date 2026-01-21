@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
-import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 
 interface FrontendStackProps extends cdk.StackProps {
@@ -18,27 +18,19 @@ export class FrontendSimpleStack extends cdk.Stack {
     // Frontend S3 Bucket
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       bucketName: `ci-frontend-${environment}-${this.account}`,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html',
+      publicReadAccess: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
 
-    // Origin Access Identity
-    const oai = new cloudfront.OriginAccessIdentity(this, 'OAI', {
-      comment: `OAI for ${environment} frontend`,
-    });
-
-    // Grant CloudFront access to S3
-    frontendBucket.grantRead(oai);
-
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: new origins.S3Origin(frontendBucket, {
-          originAccessIdentity: oai,
-        }),
+        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
       defaultRootObject: 'index.html',
       errorResponses: [
@@ -59,11 +51,6 @@ export class FrontendSimpleStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'FrontendBucketOutput', {
       value: frontendBucket.bucketName,
       exportName: `${this.stackName}-FrontendBucket`,
-    });
-
-    new cdk.CfnOutput(this, 'CloudFrontDomainOutput', {
-      value: distribution.domainName,
-      exportName: `${this.stackName}-CloudFrontDomain`,
     });
 
     new cdk.CfnOutput(this, 'CloudFrontURLOutput', {

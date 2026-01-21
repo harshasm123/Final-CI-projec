@@ -1,5 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
@@ -21,17 +23,19 @@ export class RAGStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // Bedrock Agent Role
-    const bedrockRole = new iam.Role(this, 'BedrockAgentRole', {
-      assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
-      description: 'Role for Bedrock Agent',
+    // AI Lambda Function
+    const aiFunction = new lambda.Function(this, 'AIFunction', {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      handler: 'ai_handler.lambda_handler',
+      code: lambda.Code.fromAsset('../backend/src/handlers'),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        KNOWLEDGE_BUCKET: knowledgeBaseBucket.bucketName,
+      },
     });
 
-    // Grant Bedrock permissions to S3
-    knowledgeBaseBucket.grantRead(bedrockRole);
-
-    // Grant Bedrock model invocation permissions
-    bedrockRole.addToPrincipalPolicy(
+    // Grant Bedrock permissions
+    aiFunction.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: [
@@ -39,12 +43,27 @@ export class RAGStack extends cdk.Stack {
           'bedrock:InvokeModelWithResponseStream',
         ],
         resources: [
-          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0`,
           `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
           `arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v1`,
         ],
       })
     );
+
+    // Grant S3 permissions
+    knowledgeBaseBucket.grantRead(aiFunction);
+
+    // API Gateway
+    const api = new apigateway.RestApi(this, 'AIAPI', {
+      restApiName: `pharma-ci-ai-${environment}`,
+      description: 'AI API for Pharmaceutical CI Platform',
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+      },
+    });
+
+    const aiIntegration = new apigateway.LambdaIntegration(aiFunction);
+    api.root.addResource('ai').addMethod('POST', aiIntegration);
 
     // Outputs
     new cdk.CfnOutput(this, 'KnowledgeBaseBucketOutput', {
@@ -52,9 +71,9 @@ export class RAGStack extends cdk.Stack {
       exportName: `${this.stackName}-KnowledgeBaseBucket`,
     });
 
-    new cdk.CfnOutput(this, 'BedrockRoleArnOutput', {
-      value: bedrockRole.roleArn,
-      exportName: `${this.stackName}-BedrockRoleArn`,
+    new cdk.CfnOutput(this, 'AIAPIEndpoint', {
+      value: api.url,
+      exportName: `${this.stackName}-AIAPIEndpoint`,
     });
   }
 }
