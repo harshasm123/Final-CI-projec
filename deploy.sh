@@ -47,7 +47,7 @@ npm run deploy -- \
 
 cd ..
 
-# Get outputs
+# Get outputs AFTER deployment completes
 echo ""
 echo "📋 Retrieving stack outputs..."
 CORE_STACK="pharma-ci-platform-${ENVIRONMENT}"
