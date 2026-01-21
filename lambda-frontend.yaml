@@ -1,0 +1,237 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Dynamic React Frontend using API Gateway + Lambda'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+
+Resources:
+  # Lambda Function for Frontend
+  FrontendFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'pharma-ci-frontend-${Environment}'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt FrontendLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          NODE_ENV: production
+          REACT_APP_ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          exports.handler = async (event) => {
+            const { path: requestPath, httpMethod } = event;
+            
+            // Serve React app
+            if (httpMethod === 'GET') {
+              // For SPA routing, serve index.html for non-asset requests
+              if (!requestPath.includes('.') || requestPath === '/') {
+                return {
+                  statusCode: 200,
+                  headers: {
+                    'Content-Type': 'text/html',
+                    'Cache-Control': 'no-cache'
+                  },
+                  body: `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Pharma CI Platform</title>
+                      <meta charset="utf-8">
+                      <meta name="viewport" content="width=device-width, initial-scale=1">
+                      <style>
+                        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+                        .status { background: #e8f5e9; padding: 10px; border-radius: 4px; margin: 10px 0; }
+                        .nav { background: #1976d2; color: white; padding: 15px; margin: -20px -20px 20px -20px; border-radius: 8px 8px 0 0; }
+                        .nav a { color: white; text-decoration: none; margin-right: 20px; }
+                        .card { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 4px; }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="container">
+                        <div class="nav">
+                          <h2>🧬 Pharmaceutical CI Platform</h2>
+                          <a href="/">Dashboard</a>
+                          <a href="/brands">Brand Intelligence</a>
+                          <a href="/competitive">Competitive</a>
+                          <a href="/alerts">Alerts</a>
+                          <a href="/insights">AI Insights</a>
+                          <a href="/chatbot">AI Assistant</a>
+                        </div>
+                        
+                        <div class="status">
+                          <strong>✅ Status:</strong> Platform is running (Lambda + API Gateway)
+                        </div>
+                        
+                        <div class="card">
+                          <h3>📊 Dashboard</h3>
+                          <p>Real-time competitive intelligence metrics and KPIs</p>
+                        </div>
+                        
+                        <div class="card">
+                          <h3>🏢 Brand Intelligence</h3>
+                          <p>Comprehensive brand analysis and competitive positioning</p>
+                        </div>
+                        
+                        <div class="card">
+                          <h3>🤖 AI Assistant</h3>
+                          <p>Interactive chatbot powered by AWS Bedrock</p>
+                        </div>
+                        
+                        <div class="card">
+                          <h3>🔔 Alert Center</h3>
+                          <p>Real-time notifications and competitive alerts</p>
+                        </div>
+                        
+                        <script>
+                          // Simple SPA routing
+                          const path = window.location.pathname;
+                          if (path !== '/') {
+                            document.querySelector('h2').innerHTML += ' - ' + path.substring(1).toUpperCase();
+                          }
+                        </script>
+                      </div>
+                    </body>
+                    </html>
+                  `
+                };
+              }
+              
+              // Serve static assets
+              return {
+                statusCode: 404,
+                body: JSON.stringify({ message: 'Asset not found' })
+              };
+            }
+            
+            // Health check
+            if (requestPath === '/health') {
+              return {
+                statusCode: 200,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'healthy', service: 'frontend' })
+              };
+            }
+            
+            return {
+              statusCode: 404,
+              body: JSON.stringify({ message: 'Not found' })
+            };
+          };
+
+  # API Gateway
+  FrontendApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'pharma-ci-frontend-api-${Environment}'
+      Description: 'Frontend API for Pharma CI Platform'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource (catch-all)
+  FrontendResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref FrontendApi
+      ParentId: !GetAtt FrontendApi.RootResourceId
+      PathPart: '{proxy+}'
+
+  # API Gateway Method (ANY)
+  FrontendMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FrontendApi
+      ResourceId: !Ref FrontendResource
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FrontendFunction.Arn}/invocations'
+
+  # Root method for /
+  RootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FrontendApi
+      ResourceId: !GetAtt FrontendApi.RootResourceId
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FrontendFunction.Arn}/invocations'
+
+  # API Gateway Deployment
+  FrontendDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - FrontendMethod
+      - RootMethod
+    Properties:
+      RestApiId: !Ref FrontendApi
+      StageName: !Ref Environment
+
+  # Lambda Permission for API Gateway
+  FrontendLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FrontendFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${FrontendApi}/stages/${Environment}/*/ANY/*'
+
+  RootLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FrontendFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${FrontendApi}/stages/${Environment}/ANY/'
+
+  # IAM Role for Lambda
+  FrontendLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: FrontendLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+Outputs:
+  FrontendURL:
+    Description: 'Frontend URL'
+    Value: !Sub 'https://${FrontendApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendURL'
+  
+  ApiGatewayId:
+    Description: 'API Gateway ID'
+    Value: !Ref FrontendApi
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayId'
