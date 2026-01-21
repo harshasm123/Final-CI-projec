@@ -1,279 +1,189 @@
 #!/bin/bash
 
 #############################################
-# Prerequisites Check Script
-# Verifies all required tools and AWS setup
+# Prerequisites Setup Script for CI Alert System
 #############################################
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+echo "🔧 Setting up prerequisites for CI Alert System..."
 
-# Counters
-PASSED=0
-FAILED=0
-WARNINGS=0
-
-# Logging functions
-check_pass() { 
-    echo -e "${GREEN}[✓]${NC} $1"
-    ((PASSED++))
-}
-
-check_fail() { 
-    echo -e "${RED}[✗]${NC} $1"
-    ((FAILED++))
-}
-
-check_warn() { 
-    echo -e "${YELLOW}[!]${NC} $1"
-    ((WARNINGS++))
-}
-
-check_info() { 
-    echo -e "${BLUE}[i]${NC} $1"
-}
-
-echo "=========================================="
-echo "Pharmaceutical CI Platform"
-echo "Prerequisites Check"
-echo "=========================================="
-echo ""
-
-# ============================================
-# System Commands
-# ============================================
-echo -e "${BLUE}Checking System Commands...${NC}"
-
-if command -v git &> /dev/null; then
-    GIT_VERSION=$(git --version | awk '{print $3}')
-    check_pass "Git: $GIT_VERSION"
-else
-    check_fail "Git: NOT INSTALLED"
+# Check OS
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    echo "❌ Windows detected. Please use WSL or Linux/macOS"
+    exit 1
 fi
 
-if command -v node &> /dev/null; then
-    NODE_VERSION=$(node --version)
-    check_pass "Node.js: $NODE_VERSION"
-else
-    check_fail "Node.js: NOT INSTALLED"
+# Set non-interactive mode for apt
+export DEBIAN_FRONTEND=noninteractive
+
+# Wait for any running apt processes to complete
+echo "⏳ Waiting for package manager to be available..."
+sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && echo "Waiting for other package managers to finish..." && sleep 60
+sudo pkill -f apt >/dev/null 2>&1 || true
+sleep 10
+
+# Install unzip if not present
+if ! command -v unzip &> /dev/null; then
+    echo "📦 Installing unzip..."
+    sudo apt-get update
+    sudo apt-get install -y unzip
 fi
 
-if command -v npm &> /dev/null; then
-    NPM_VERSION=$(npm --version)
-    check_pass "npm: $NPM_VERSION"
-else
-    check_fail "npm: NOT INSTALLED"
+# Install AWS CLI v2
+if ! command -v aws &> /dev/null; then
+    echo "📦 Installing AWS CLI v2..."
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    sudo ./aws/install
+    rm -rf aws awscliv2.zip
 fi
 
-if command -v python3 &> /dev/null; then
-    PYTHON_VERSION=$(python3 --version | awk '{print $2}')
-    check_pass "Python 3: $PYTHON_VERSION"
-else
-    check_fail "Python 3: NOT INSTALLED"
+# Install Node.js 20 LTS (avoid deprecation warnings)
+if ! command -v node &> /dev/null || [[ $(node -v | cut -d'.' -f1 | cut -d'v' -f2) -lt 20 ]]; then
+    echo "📦 Installing Node.js 20 LTS..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 fi
 
-if command -v pip3 &> /dev/null; then
-    check_pass "pip3: INSTALLED"
+# Install Python 3 (use system default)
+if ! command -v python3 &> /dev/null; then
+    echo "📦 Installing Python 3..."
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv
 else
-    check_fail "pip3: NOT INSTALLED"
+    echo "✓ Python 3 already installed: $(python3 --version)"
 fi
 
-if command -v aws &> /dev/null; then
-    AWS_VERSION=$(aws --version | awk '{print $1}')
-    check_pass "AWS CLI: $AWS_VERSION"
+# Install Docker
+if ! command -v docker &> /dev/null; then
+    echo "📦 Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    sudo usermod -aG docker $USER
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    sudo chmod 666 /var/run/docker.sock
+    rm get-docker.sh
+    echo "✅ Docker installed"
 else
-    check_fail "AWS CLI: NOT INSTALLED"
-fi
-
-if command -v cdk &> /dev/null; then
-    CDK_VERSION=$(cdk --version)
-    check_pass "AWS CDK: $CDK_VERSION"
-else
-    check_warn "AWS CDK: NOT INSTALLED (will install during deployment)"
-fi
-
-echo ""
-
-# ============================================
-# AWS Configuration
-# ============================================
-echo -e "${BLUE}Checking AWS Configuration...${NC}"
-
-if aws sts get-caller-identity &> /dev/null; then
-    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
-    check_pass "AWS Credentials: Configured"
-    check_info "Account ID: $ACCOUNT_ID"
-    check_info "User ARN: $USER_ARN"
-else
-    check_fail "AWS Credentials: NOT CONFIGURED"
-fi
-
-if [ -n "$AWS_REGION" ]; then
-    check_pass "AWS Region: $AWS_REGION"
-else
-    check_warn "AWS Region: NOT SET (will use us-east-1)"
-fi
-
-echo ""
-
-# ============================================
-# System Resources
-# ============================================
-echo -e "${BLUE}Checking System Resources...${NC}"
-
-# Disk space
-DISK_AVAILABLE=$(df -BG . | awk 'NR==2 {print $4}' | sed 's/G//')
-if [ "$DISK_AVAILABLE" -ge 20 ]; then
-    check_pass "Disk Space: ${DISK_AVAILABLE}GB available"
-else
-    check_warn "Disk Space: Only ${DISK_AVAILABLE}GB available (recommended: 20GB+)"
-fi
-
-# Memory
-if command -v free &> /dev/null; then
-    MEM_AVAILABLE=$(free -BG | awk 'NR==2 {print $7}' | sed 's/G//')
-    if [ "$MEM_AVAILABLE" -ge 2 ]; then
-        check_pass "Memory: ${MEM_AVAILABLE}GB available"
-    else
-        check_warn "Memory: Only ${MEM_AVAILABLE}GB available (recommended: 2GB+)"
+    echo "✓ Docker already installed"
+    # Fix permissions if Docker exists but has permission issues
+    if ! docker ps &>/dev/null; then
+        echo "🔧 Fixing Docker permissions..."
+        sudo usermod -aG docker $USER
+        sudo systemctl start docker
+        sudo chmod 666 /var/run/docker.sock
     fi
 fi
 
-echo ""
-
-# ============================================
-# Git Configuration
-# ============================================
-echo -e "${BLUE}Checking Git Configuration...${NC}"
-
-GIT_USER=$(git config --global user.name 2>/dev/null || echo "")
-GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
-
-if [ -n "$GIT_USER" ]; then
-    check_pass "Git User: $GIT_USER"
-else
-    check_warn "Git User: NOT CONFIGURED"
+# Install AWS CDK
+if ! command -v cdk &> /dev/null; then
+    echo "📦 Installing AWS CDK..."
+    sudo npm install -g aws-cdk
 fi
 
-if [ -n "$GIT_EMAIL" ]; then
-    check_pass "Git Email: $GIT_EMAIL"
-else
-    check_warn "Git Email: NOT CONFIGURED"
+# Install Git
+if ! command -v git &> /dev/null; then
+    echo "📦 Installing Git..."
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git
 fi
 
-echo ""
-
-# ============================================
-# AWS Permissions
-# ============================================
-echo -e "${BLUE}Checking AWS Permissions...${NC}"
-
-# Check CloudFormation
-if aws cloudformation describe-stacks --region us-east-1 &> /dev/null; then
-    check_pass "CloudFormation: Access granted"
+# Configure AWS CLI
+echo "🔐 Configuring AWS CLI..."
+if [ ! -f ~/.aws/credentials ]; then
+    echo "Please enter your AWS credentials:"
+    aws configure
 else
-    check_warn "CloudFormation: May not have access"
+    echo "AWS credentials already configured. Reconfigure? (y/N)"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        aws configure
+    fi
 fi
 
-# Check Lambda
-if aws lambda list-functions --region us-east-1 &> /dev/null; then
-    check_pass "Lambda: Access granted"
+# Check and fix region for CloudFormation hook issues
+CURRENT_REGION=$(aws configure get region)
+echo "🌍 Current region: $CURRENT_REGION"
+
+PROBLEMATIC_REGIONS=("us-west-2")
+for region in "${PROBLEMATIC_REGIONS[@]}"; do
+    if [ "$CURRENT_REGION" = "$region" ]; then
+        echo "⚠️  $region has CloudFormation hooks blocking CDK"
+        aws configure set region us-east-1
+        echo "✅ Switched to us-east-1"
+        break
+    fi
+done
+
+# Verify AWS access
+echo "🔍 Verifying AWS access..."
+if aws sts get-caller-identity &>/dev/null; then
+    echo "✅ AWS credentials valid"
+    aws sts get-caller-identity
 else
-    check_warn "Lambda: May not have access"
-fi
-
-# Check S3
-if aws s3 ls &> /dev/null; then
-    check_pass "S3: Access granted"
-else
-    check_warn "S3: May not have access"
-fi
-
-# Check DynamoDB
-if aws dynamodb list-tables --region us-east-1 &> /dev/null; then
-    check_pass "DynamoDB: Access granted"
-else
-    check_warn "DynamoDB: May not have access"
-fi
-
-# Check Elasticsearch
-if aws es describe-elasticsearch-domains --region us-east-1 &> /dev/null; then
-    check_pass "Elasticsearch: Access granted"
-else
-    check_warn "Elasticsearch: May not have access"
-fi
-
-# Check API Gateway
-if aws apigateway get-account --region us-east-1 &> /dev/null; then
-    check_pass "API Gateway: Access granted"
-else
-    check_warn "API Gateway: May not have access"
-fi
-
-echo ""
-
-# ============================================
-# Project Structure
-# ============================================
-echo -e "${BLUE}Checking Project Structure...${NC}"
-
-if [ -d "cdk" ]; then
-    check_pass "CDK Directory: Found"
-else
-    check_fail "CDK Directory: NOT FOUND"
-fi
-
-if [ -d "frontend" ]; then
-    check_pass "Frontend Directory: Found"
-else
-    check_fail "Frontend Directory: NOT FOUND"
-fi
-
-if [ -d "backend" ]; then
-    check_pass "Backend Directory: Found"
-else
-    check_fail "Backend Directory: NOT FOUND"
-fi
-
-if [ -d "scripts" ]; then
-    check_pass "Scripts Directory: Found"
-else
-    check_fail "Scripts Directory: NOT FOUND"
-fi
-
-echo ""
-
-# ============================================
-# Summary
-# ============================================
-echo "=========================================="
-echo "Prerequisites Check Summary"
-echo "=========================================="
-echo -e "${GREEN}Passed: $PASSED${NC}"
-echo -e "${YELLOW}Warnings: $WARNINGS${NC}"
-echo -e "${RED}Failed: $FAILED${NC}"
-echo ""
-
-if [ $FAILED -eq 0 ]; then
-    echo -e "${GREEN}✓ All critical prerequisites are met!${NC}"
+    echo "❌ AWS credentials invalid or not configured"
+    echo "   Please reconfigure your credentials:"
     echo ""
-    echo "Next steps:"
-    echo "  1. cd cdk"
-    echo "  2. npm install"
-    echo "  3. ./deploy.sh dev us-east-1"
+    aws configure
     echo ""
+    echo "Verifying again..."
+    if aws sts get-caller-identity; then
+        echo "✅ AWS credentials now valid"
+    else
+        echo "❌ Still invalid. Check your Access Key ID and Secret Access Key"
+        exit 1
+    fi
+fi
+
+# Verify all tools are installed
+echo ""
+echo "📋 Verifying all tools..."
+echo ""
+
+TOOLS=("git" "node" "npm" "python3" "aws" "cdk" "docker")
+ALL_GOOD=true
+
+for tool in "${TOOLS[@]}"; do
+    if command -v $tool &> /dev/null; then
+        VERSION=$($tool --version 2>&1 | head -n1)
+        echo "✅ $tool: $VERSION"
+    else
+        echo "❌ $tool: NOT FOUND"
+        ALL_GOOD=false
+    fi
+done
+
+echo ""
+echo "⚠️  IMPORTANT: Enable Bedrock models manually"
+echo "   1. Go to AWS Console > Bedrock > Model Access"
+echo "   2. Request access to: Claude 3.5 Haiku and Claude 3.5 Sonnet"
+echo "   3. Wait for approval (usually instant for standard models)"
+echo ""
+
+echo "✅ Prerequisites setup complete!"
+echo ""
+
+echo "🐳 Docker Status:"
+if docker ps &>/dev/null; then
+    echo "  ✅ Docker is working"
+else
+    echo "  ⚠️  Docker needs group refresh"
+    echo "  Run: newgrp docker"
+    echo "  Or logout and login again"
+fi
+
+echo ""
+echo "Next steps:"
+echo "1. If Docker permission error: logout and login OR run 'newgrp docker'"
+echo "2. Enable Bedrock models: https://console.aws.amazon.com/bedrock/home#/modelaccess"
+echo "3. Run: ./deploy.sh dev us-east-1"
+echo ""
+
+if [ "$ALL_GOOD" = true ]; then
     exit 0
 else
-    echo -e "${RED}✗ Some critical prerequisites are missing.${NC}"
-    echo ""
-    echo "Please install missing components and try again."
-    echo ""
+    echo "❌ Some tools are missing. Please install them and try again."
     exit 1
 fi

@@ -39,24 +39,40 @@ echo "Region: $REGION"
 echo ""
 
 # ============================================
-# Step 1: Prerequisites Check
+# Step 1: Prerequisites Setup
 # ============================================
-log_info "Step 1: Running prerequisites check..."
+log_info "Step 1: Setting up prerequisites..."
 if [ -f "prereq.sh" ]; then
     chmod +x prereq.sh
-    if ! ./prereq.sh; then
-        log_error "Prerequisites check failed"
-        exit 1
-    fi
+    ./prereq.sh
 else
-    log_warning "Prerequisites script not found"
+    log_error "Prerequisites script not found"
+    exit 1
 fi
 echo ""
 
 # ============================================
-# Step 2: Deploy Infrastructure with CDK
+# Step 2: Verify AWS Credentials
 # ============================================
-log_info "Step 2: Deploying infrastructure with AWS CDK..."
+log_info "Step 2: Verifying AWS credentials..."
+
+if ! aws sts get-caller-identity &> /dev/null; then
+    log_error "AWS credentials not configured"
+    log_info "Run: aws configure"
+    exit 1
+fi
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+log_success "AWS credentials verified"
+log_info "Account ID: $ACCOUNT_ID"
+log_info "User ARN: $USER_ARN"
+echo ""
+
+# ============================================
+# Step 3: Deploy Infrastructure with CDK
+# ============================================
+log_info "Step 3: Deploying infrastructure with AWS CDK..."
 
 if [ ! -d "cdk" ]; then
     log_error "CDK directory not found"
@@ -111,9 +127,9 @@ cd ..
 echo ""
 
 # ============================================
-# Step 3: Deploy Frontend
+# Step 4: Deploy Frontend
 # ============================================
-log_info "Step 3: Deploying frontend..."
+log_info "Step 4: Deploying frontend..."
 
 if [ ! -d "frontend" ]; then
     log_error "Frontend directory not found"
@@ -229,9 +245,9 @@ cd ..
 echo ""
 
 # ============================================
-# Step 4: Configure API Keys
+# Step 5: Configure API Keys
 # ============================================
-log_info "Step 4: Setting up API keys in Secrets Manager..."
+log_info "Step 5: Setting up API keys in Secrets Manager..."
 
 SECRETS=(
     "ci-fda-api-key"
@@ -259,7 +275,7 @@ log_warning "Please configure actual API keys in AWS Secrets Manager"
 echo ""
 
 # ============================================
-# Step 5: Deployment Summary
+# Step 6: Deployment Summary
 # ============================================
 echo "=========================================="
 echo "Deployment Complete!"
