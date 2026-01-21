@@ -15,9 +15,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_URL="${1:-https://github.com/your-org/ci-alert-platform.git}"
+REPO_URL="${1:-https://github.com/harshasm123/Final-CI-projec.git}"
 BRANCH="${2:-main}"
-INSTALL_DIR="${3:-$HOME/ci-alert-platform}"
+INSTALL_DIR="${3:-$HOME/Final-CI-projec}"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}EC2 Setup - Git & Repository Pull${NC}"

@@ -73,17 +73,17 @@ def handler(event, context):
     resource.addMethod('GET', new apigateway.LambdaIntegration(apiHandler));
 
     // Outputs
-    new cdk.CfnOutput(this, 'APIEndpoint', {
+    new cdk.CfnOutput(this, 'APIEndpointOutput', {
       value: api.url,
       exportName: `${this.stackName}-APIEndpoint`,
     });
 
-    new cdk.CfnOutput(this, 'DataLakeBucket', {
+    new cdk.CfnOutput(this, 'DataLakeBucketOutput', {
       value: dataLakeBucket.bucketName,
       exportName: `${this.stackName}-DataLakeBucket`,
     });
 
-    new cdk.CfnOutput(this, 'ConversationTable', {
+    new cdk.CfnOutput(this, 'ConversationTableOutput', {
       value: conversationTable.tableName,
       exportName: `${this.stackName}-ConversationTable`,
     });
