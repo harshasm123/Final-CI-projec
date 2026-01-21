@@ -39,12 +39,15 @@ echo ""
 echo "Checking for existing resources..."
 existing_stacks=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, 'pharma-ci')].StackName" --output text --region $REGION)
 if [ -n "$existing_stacks" ]; then
-    echo "Found existing stacks. Run cleanup first:"
-    echo "  ./cleanup.sh $ENVIRONMENT $REGION"
-    echo "  Then run: ./deploy.sh $ENVIRONMENT $REGION $FRONTEND_TYPE"
-    exit 1
+    log_warning "Found existing stacks. Attempting to update..."
 fi
-echo "No conflicts found"
+
+# Check for existing S3 bucket
+existing_bucket=$(aws s3api head-bucket --bucket "ci-data-dev-$ACCOUNT_ID" 2>/dev/null && echo "exists" || echo "")
+if [ "$existing_bucket" = "exists" ]; then
+    log_warning "S3 bucket ci-data-dev-$ACCOUNT_ID already exists. CDK will attempt to import it."
+fi
+echo "Proceeding with deployment..."
 echo ""
 
 # Deploy using CDK
@@ -59,9 +62,13 @@ npm install --silent
 log_info "Building CDK TypeScript..."
 npm run build
 
-# Deploy CDK stacks
+# Bootstrap CDK (update to version 30+)
+log_info "Bootstrapping CDK environment..."
+npm run cdk -- bootstrap --force
+
+# Deploy CDK stacks with hotswap for updates
 log_info "Deploying CDK stacks..."
-npm run deploy -- --all --require-approval never
+npm run deploy -- --all --require-approval never --hotswap
 
 log_success "CDK deployment complete"
 cd ..
