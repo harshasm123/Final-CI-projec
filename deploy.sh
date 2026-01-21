@@ -19,7 +19,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-echo "🚀 Pharmaceutical CI Platform - Production-Grade Deployment"
+echo "Pharmaceutical CI Platform - Production-Grade Deployment"
 echo ""
 
 # Configuration
@@ -28,7 +28,7 @@ ENVIRONMENT=${1:-dev}
 FRONTEND_TYPE=${3:-ecs}  # ecs, lambda (dynamic only)
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-echo "📋 Configuration:"
+echo "Configuration:"
 echo "  Region: $REGION"
 echo "  Account: $ACCOUNT_ID"
 echo "  Environment: $ENVIRONMENT"
@@ -36,15 +36,15 @@ echo "  Frontend: $FRONTEND_TYPE"
 echo ""
 
 # Check for existing resources
-echo "🔍 Checking for existing resources..."
+echo "Checking for existing resources..."
 existing_stacks=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --query "StackSummaries[?contains(StackName, 'pharma-ci')].StackName" --output text --region $REGION)
 if [ -n "$existing_stacks" ]; then
-    echo "⚠️  Found existing stacks. Run cleanup first:"
+    echo "Found existing stacks. Run cleanup first:"
     echo "  ./cleanup.sh $ENVIRONMENT $REGION"
     echo "  Then run: ./deploy.sh $ENVIRONMENT $REGION $FRONTEND_TYPE"
     exit 1
 fi
-echo "✅ No conflicts found"
+echo "No conflicts found"
 echo ""
 
 # Deploy using CDK
@@ -76,7 +76,7 @@ KB_BUCKET="demo-knowledge-base"
 
 # Deploy frontend application
 echo ""
-echo "🎨 Deploying frontend application..."
+echo "Deploying frontend application..."
 
 if [ -d "frontend" ]; then
     cd frontend
@@ -128,20 +128,20 @@ done
 
 # Summary
 echo ""
-echo "✅ Production-Grade Deployment Complete!"
+echo "Production-Grade Deployment Complete!"
 echo ""
-echo "🔗 Infrastructure:"
+echo "Infrastructure:"
 echo "  API Endpoint: $API_ENDPOINT"
 echo "  Data Bucket: $DATA_BUCKET"
 echo "  User Pool: $USER_POOL_ID"
 echo "  Knowledge Base: $KB_BUCKET"
 echo ""
 if [ -n "$FRONTEND_URL" ]; then
-    echo "🌍 Frontend ($FRONTEND_TYPE):"
+    echo "Frontend ($FRONTEND_TYPE):"
     echo "  URL: $FRONTEND_URL"
     echo ""
 fi
-echo "📊 Stacks Deployed:"
+echo "Stacks Deployed:"
 echo "  1. pharma-ci-core-${ENVIRONMENT} - Core infrastructure"
 echo "  2. pharma-ci-auth-${ENVIRONMENT} - Authentication (Cognito)"
 echo "  3. pharma-ci-data-${ENVIRONMENT} - Data processing"
@@ -150,14 +150,14 @@ echo "  5. pharma-ci-events-${ENVIRONMENT} - Event processing"
 echo "  6. pharma-ci-monitoring-${ENVIRONMENT} - Monitoring"
 echo "  7. pharma-ci-frontend-${ENVIRONMENT} - Frontend application"
 echo ""
-echo "🔧 Next Steps:"
+echo "Next Steps:"
 echo "  1. Configure API keys in Secrets Manager"
 echo "  2. Upload documents to Knowledge Base: s3://$KB_BUCKET"
 echo "  3. Create Cognito users or enable self-registration"
 echo "  4. Configure SES for email notifications"
 echo "  5. Set up custom domain (optional)"
 echo ""
-echo "🚀 Frontend deployment options:"
+echo "Frontend deployment options:"
 echo "  ECS Fargate: ./deploy.sh $ENVIRONMENT $REGION ecs"
 echo "  Lambda + API Gateway: ./deploy.sh $ENVIRONMENT $REGION lambda"
 echo ""
