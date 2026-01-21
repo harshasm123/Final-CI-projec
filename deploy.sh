@@ -49,63 +49,87 @@ echo ""
 
 # Deploy Core Infrastructure Stack
 log_info "Deploying core infrastructure..."
-aws cloudformation deploy \
-    --template-file architecture.yaml \
-    --stack-name "pharma-ci-core-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "architecture.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file architecture.yaml \
+        --stack-name "pharma-ci-core-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "architecture.yaml not found, skipping core deployment"
+fi
 
 # Deploy Authentication Stack
 log_info "Deploying authentication infrastructure..."
-aws cloudformation deploy \
-    --template-file auth-stack.yaml \
-    --stack-name "pharma-ci-auth-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "auth-stack.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file auth-stack.yaml \
+        --stack-name "pharma-ci-auth-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "auth-stack.yaml not found, skipping auth deployment"
+fi
 
 # Deploy Data Processing Stack
 log_info "Deploying data processing infrastructure..."
-aws cloudformation deploy \
-    --template-file data-stack.yaml \
-    --stack-name "pharma-ci-data-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "data-stack.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file data-stack.yaml \
+        --stack-name "pharma-ci-data-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "data-stack.yaml not found, skipping data deployment"
+fi
 
 # Deploy AI/RAG Stack
 log_info "Deploying AI and RAG infrastructure..."
-aws cloudformation deploy \
-    --template-file rag-stack.yaml \
-    --stack-name "pharma-ci-rag-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "rag-stack.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file rag-stack.yaml \
+        --stack-name "pharma-ci-rag-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "rag-stack.yaml not found, skipping RAG deployment"
+fi
 
 # Deploy Event Processing Stack
 log_info "Deploying event processing infrastructure..."
-aws cloudformation deploy \
-    --template-file events-stack.yaml \
-    --stack-name "pharma-ci-events-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "events-stack.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file events-stack.yaml \
+        --stack-name "pharma-ci-events-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "events-stack.yaml not found, skipping events deployment"
+fi
 
 # Deploy Monitoring Stack
 log_info "Deploying monitoring infrastructure..."
-aws cloudformation deploy \
-    --template-file monitoring-stack.yaml \
-    --stack-name "pharma-ci-monitoring-${ENVIRONMENT}" \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
+if [ -f "monitoring-stack.yaml" ]; then
+    aws cloudformation deploy \
+        --template-file monitoring-stack.yaml \
+        --stack-name "pharma-ci-monitoring-${ENVIRONMENT}" \
+        --parameter-overrides \
+            Environment=$ENVIRONMENT \
+        --capabilities CAPABILITY_IAM \
+        --region $REGION
+else
+    log_warning "monitoring-stack.yaml not found, skipping monitoring deployment"
+fi
 
 # Get core stack outputs
 log_info "Retrieving stack outputs..."
