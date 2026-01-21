@@ -83,7 +83,7 @@ cd cdk
 
 # Install dependencies
 log_info "Installing CDK dependencies..."
-npm install --silent
+npm install
 
 # Build TypeScript
 log_info "Building TypeScript..."
@@ -91,10 +91,17 @@ npm run build
 
 # Synthesize CloudFormation
 log_info "Synthesizing CloudFormation template..."
-npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION > /dev/null
+log_info "This may take 1-2 minutes on first run..."
+if timeout 300 npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION; then
+    log_success "CloudFormation template synthesized"
+else
+    log_error "Synthesis timed out or failed"
+    exit 1
+fi
 
 # Deploy stacks
 log_info "Deploying CloudFormation stacks..."
+log_info "This may take 5-10 minutes..."
 npm run deploy -- \
     --context environment=$ENVIRONMENT \
     --context region=$REGION \
@@ -140,7 +147,7 @@ cd frontend
 
 # Install dependencies
 log_info "Installing frontend dependencies..."
-npm install --silent
+npm install
 
 # Create environment file
 log_info "Creating environment configuration..."
