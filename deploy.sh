@@ -91,8 +91,8 @@ npm run build
 
 # Synthesize CloudFormation
 log_info "Synthesizing CloudFormation template..."
-log_info "This may take 1-2 minutes on first run..."
-if timeout 300 npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION; then
+log_info "This may take 2-5 minutes on first run..."
+if timeout 600 npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION; then
     log_success "CloudFormation template synthesized"
 else
     log_error "Synthesis timed out or failed"
