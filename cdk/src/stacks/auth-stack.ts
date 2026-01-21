@@ -27,7 +27,9 @@ export class AuthStack extends cdk.Stack {
         email: true,
         username: true,
       },
-      autoVerifiedAttributes: [cognito.UserPoolAttribute.EMAIL],
+      autoVerify: {
+        email: true,
+      },
       passwordPolicy: {
         minLength: 12,
         requireLowercase: true,
@@ -43,8 +45,6 @@ export class AuthStack extends cdk.Stack {
     // User Pool Client
     // ============================================
     this.userPoolClient = this.userPool.addClient('WebClient', {
-      clientName: `ci-web-client-${environment}`,
-      generateSecret: false,
       authFlows: {
         userPassword: true,
         userSrp: true,

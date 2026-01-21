@@ -27,14 +27,14 @@ export class EventProcessingStack extends cdk.Stack {
     this.ingestionQueue = new sqs.Queue(this, 'IngestionQueue', {
       queueName: `ci-ingestion-queue-${environment}`,
       visibilityTimeout: cdk.Duration.minutes(15),
-      messageRetentionPeriod: cdk.Duration.days(4),
+      retentionPeriod: cdk.Duration.days(4),
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
     this.processingQueue = new sqs.Queue(this, 'ProcessingQueue', {
       queueName: `ci-processing-queue-${environment}`,
       visibilityTimeout: cdk.Duration.minutes(10),
-      messageRetentionPeriod: cdk.Duration.days(4),
+      retentionPeriod: cdk.Duration.days(4),
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 

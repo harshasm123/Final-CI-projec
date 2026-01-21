@@ -25,7 +25,7 @@ export class FrontendStack extends cdk.Stack {
     // ============================================
     const vpc = new ec2.Vpc(this, 'FrontendVpc', {
       maxAzs: 2,
-      cidrMask: 24,
+      cidrBlock: '10.0.0.0/16',
       natGateways: 1,
     });
 
@@ -84,9 +84,11 @@ export class FrontendStack extends cdk.Stack {
     // ============================================
     // Load Balancer Target Group
     // ============================================
-    const targetGroup = this.loadBalancer.addTarget('FargateTarget', {
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'FargateTargetGroup', {
+      vpc,
       port: 80,
-      targets: [this.fargateService],
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targetType: elbv2.TargetType.IP,
       healthCheck: {
         path: '/',
         interval: cdk.Duration.seconds(60),
@@ -95,6 +97,8 @@ export class FrontendStack extends cdk.Stack {
         unhealthyThresholdCount: 3,
       },
     });
+
+    this.fargateService.attachToApplicationTargetGroup(targetGroup);
 
     // ============================================
     // ALB Listener
