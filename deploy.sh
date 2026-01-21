@@ -107,7 +107,7 @@ if [ -d "frontend" ]; then
     cd frontend
     
     echo "  Installing frontend dependencies..."
-    npm install
+    npm install --legacy-peer-deps
     
     echo "  Creating environment configuration..."
     cat > .env.local << EOF
