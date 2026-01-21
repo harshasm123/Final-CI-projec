@@ -1,297 +1,282 @@
-# Pharmaceutical Competitive Intelligence Platform
+# Pharmaceutical CI Platform
 
-A comprehensive serverless AWS platform for pharmaceutical competitive intelligence, featuring real-time data ingestion from 8+ medical sources, AI-powered analysis, and interactive dashboards.
+Enterprise-grade Competitive Intelligence platform for pharmaceutical companies using AWS serverless architecture.
 
 ## 🏗️ Architecture
 
-- **Frontend**: React 18 + TypeScript + Material UI
-- **Backend**: AWS Lambda + API Gateway + OpenSearch
-- **AI**: AWS Bedrock (Claude 3 Sonnet) + Bedrock Agents
-- **Data**: S3 + OpenSearch + EventBridge scheduling
-- **Security**: IAM roles + Secrets Manager + encryption
+- **Frontend**: React TypeScript application
+- **Backend**: AWS Lambda functions (Python 3.11)
+- **Data**: S3, DynamoDB, Elasticsearch
+- **AI**: AWS Bedrock (Claude 3 Sonnet)
+- **Infrastructure**: AWS CDK (TypeScript)
 
-## 📊 Data Sources
+## 📁 Project Structure
 
-1. **PubMed** - Medical literature (2-hour updates)
-2. **ClinicalTrials.gov** - Clinical trials (4-hour updates)
-3. **FDA** - Drug approvals & safety (6-hour updates)
-4. **EMA** - European medicines (daily updates)
-5. **USPTO** - Patent filings (daily updates)
-6. **News APIs** - Industry news (2-hour updates)
-7. **Medical Conferences** - Conference data (weekly updates)
-8. **SEC Filings** - Financial data (daily updates)
+```
+.
+├── cdk/                    # AWS CDK Infrastructure as Code
+│   ├── src/
+│   │   ├── index.ts       # CDK app entry point
+│   │   └── stacks/        # CloudFormation stacks
+│   ├── deploy.sh          # Deployment script
+│   └── README.md          # CDK documentation
+├── frontend/              # React TypeScript application
+│   ├── src/
+│   ├── public/
+│   └── package.json
+├── backend/               # Python Lambda functions
+│   ├── src/
+│   │   ├── handlers/      # Lambda handlers
+│   │   └── services/      # AWS service integrations
+│   └── requirements.txt
+├── scripts/               # Utility scripts
+│   ├── ec2setup.sh       # EC2 setup script
+│   └── push-to-github.sh # GitHub push script
+├── SYSTEM_ARCHITECTURE.md # System design documentation
+├── FINAL_DEPLOYMENT_GUIDE.md # Deployment instructions
+└── README.md             # This file
+```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-```bash
-# Run prerequisites check
-chmod +x prereq.sh
-./prereq.sh
-```
+- Node.js 18+
+- Python 3.11+
+- AWS CLI configured
+- AWS CDK CLI: `npm install -g aws-cdk`
 
-Required:
-- AWS CLI 2.0+
-- Python 3.8+
-- Node.js 16+
-- AWS account with appropriate permissions
-
-### Deployment
+### Deploy Infrastructure
 
 ```bash
-# Deploy to development environment
-chmod +x deploy.sh
+cd cdk
+npm install
 ./deploy.sh dev us-east-1
-
-# Deploy to production
-./deploy.sh prod us-east-1
 ```
 
-### Configuration
+### Deploy Frontend
 
-1. **Configure API Keys** in AWS Secrets Manager:
-   ```
-   pharma-ci/fda-api-key
-   pharma-ci/pubmed-api-key
-   pharma-ci/clinicaltrials-api-key
-   pharma-ci/news-api-key
-   pharma-ci/sec-api-key
-   pharma-ci/uspto-api-key
-   ```
-
-2. **Access the Platform**:
-   - Frontend: `http://[bucket-name].s3-website-[region].amazonaws.com`
-   - API: `https://[api-id].execute-api.[region].amazonaws.com/prod`
-
-## 🎯 Features
-
-### Dashboard
-- Real-time competitive metrics
-- Brand performance tracking
-- Market trend analysis
-- Alert summaries
-
-### Brand Intelligence
-- Comprehensive brand profiles
-- Competitive positioning
-- Market share analysis
-- Pipeline tracking
-
-### Competitive Landscape
-- Market mapping
-- Competitor analysis
-- Therapeutic area insights
-- Strategic recommendations
-
-### Alert Center
-- Real-time notifications
-- Customizable alert rules
-- Priority-based filtering
-- Action workflows
-
-### AI Insights
-- Bedrock-powered analysis
-- Natural language queries
-- Predictive analytics
-- Strategic recommendations
-
-### AI Chatbot
-- Interactive CI assistant
-- Specialized pharmaceutical knowledge
-- Template-based queries
-- Context-aware responses
-
-## 📁 Project Structure
-
-```
-pharma-ci-platform/
-├── architecture.yaml                    # Main CloudFormation template
-├── bedrock-agent.yaml                  # Bedrock Agent infrastructure
-├── comprehensive-eventbridge-rules.yaml # Scheduling rules
-├── deploy.sh                           # Deployment script
-├── prereq.sh                          # Prerequisites check
-├── backend/
-│   └── src/
-│       ├── comprehensive_data_ingestion.py  # Main ingestion pipeline
-│       ├── data_quality_pipeline.py         # Quality validation
-│       ├── dashboard_handler.py             # Dashboard API
-│       ├── brand_intelligence_handler.py    # Brand intelligence API
-│       ├── alerts_handler.py               # Alerts API
-│       └── ai_insights_handler.py          # AI insights API
-├── frontend/
-│   ├── package.json
-│   ├── src/
-│   │   ├── App.tsx                     # Main React app
-│   │   ├── components/
-│   │   │   ├── Dashboard.tsx           # Dashboard component
-│   │   │   ├── BrandIntelligence.tsx   # Brand intelligence
-│   │   │   ├── CompetitiveLandscape.tsx # Competitive analysis
-│   │   │   ├── AlertCenter.tsx         # Alert management
-│   │   │   ├── AIInsights.tsx          # AI-powered insights
-│   │   │   └── EnhancedAIChatbot.tsx   # Interactive chatbot
-│   │   └── services/
-│   │       └── api.ts                  # API client
-└── docs/
-    └── COMPREHENSIVE_DATA_SOURCES.md   # Data source documentation
-```
-
-## 🔧 API Endpoints
-
-### Core APIs
-- `GET /dashboard` - Dashboard metrics
-- `GET /brand-intelligence` - Brand analysis
-- `GET /competitive-landscape` - Market analysis
-- `GET /alerts` - Alert management
-- `GET /ai-insights` - AI-powered insights
-
-### Data Management
-- `POST /trigger-ingestion` - Manual data ingestion
-- `GET /data-quality` - Quality metrics
-- `POST /validate-data` - Data validation
-
-### AI Services
-- `POST /bedrock-agent/query` - Chatbot queries
-- `POST /ai-analysis` - AI analysis requests
-
-## 🛡️ Security
-
-- **IAM Roles**: Least privilege access
-- **Encryption**: At-rest and in-transit
-- **Secrets Management**: AWS Secrets Manager
-- **API Security**: API Gateway authentication
-- **Data Privacy**: PII anonymization
-
-## 📈 Monitoring
-
-### CloudWatch Metrics
-- Data ingestion rates
-- API response times
-- Error rates
-- Quality scores
-
-### Alarms
-- Failed ingestions
-- High error rates
-- Quality threshold breaches
-- Cost anomalies
-
-### Logs
-- Application logs in CloudWatch
-- API Gateway access logs
-- Lambda execution logs
-- Data quality reports
-
-## 🔄 Data Pipeline
-
-### Ingestion Flow
-1. **EventBridge** triggers Lambda functions
-2. **Lambda** fetches data from external APIs
-3. **AI Analysis** extracts insights using Bedrock
-4. **Quality Validation** ensures data integrity
-5. **OpenSearch** indexes processed data
-6. **S3** stores raw and processed data
-
-### Quality Dimensions
-- **Completeness**: Required fields present
-- **Accuracy**: Data format validation
-- **Timeliness**: Freshness checks
-- **Consistency**: Cross-source validation
-- **Uniqueness**: Duplicate detection
-
-## 🎛️ Configuration
-
-### Environment Variables
-```bash
-ENVIRONMENT=dev|staging|prod
-REGION=us-east-1
-OPENSEARCH_ENDPOINT=https://...
-S3_BUCKET=pharma-ci-data-bucket
-BEDROCK_AGENT_ID=agent-id
-```
-
-### Scaling Configuration
-- **Lambda**: Concurrent executions (1000)
-- **OpenSearch**: Instance types (t3.small.search)
-- **API Gateway**: Rate limiting (1000 req/sec)
-- **S3**: Lifecycle policies (90 days)
-
-## 🧪 Testing
-
-### Unit Tests
-```bash
-cd backend
-python -m pytest tests/
-```
-
-### Integration Tests
 ```bash
 cd frontend
-npm test
+npm install
+npm run build
+npm run deploy
 ```
 
-### Load Testing
+### Deploy Backend
+
 ```bash
-# API load testing
-artillery run load-test.yml
+cd backend
+pip install -r requirements.txt
+# Lambda functions are deployed via CDK
 ```
 
 ## 📚 Documentation
 
-- **API Documentation**: Available at `/docs` endpoint
-- **Data Sources**: See `COMPREHENSIVE_DATA_SOURCES.md`
-- **Architecture**: See CloudFormation templates
-- **Deployment**: See deployment scripts
+- **[SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)** - Complete system design and data flows
+- **[FINAL_DEPLOYMENT_GUIDE.md](./FINAL_DEPLOYMENT_GUIDE.md)** - Step-by-step deployment instructions
+- **[cdk/README.md](./cdk/README.md)** - CDK infrastructure documentation
+
+## 🔧 Key Features
+
+### Data Ingestion
+- FDA regulatory data
+- PubMed clinical research
+- Clinical trials information
+- News and market intelligence
+- SEC filings and patents
+
+### AI Analysis
+- Competitive landscape analysis
+- Threat assessment
+- Market opportunity identification
+- Brand intelligence aggregation
+- Automated alert generation
+
+### Interactive Chatbot
+- Bedrock Claude 3 Sonnet integration
+- Multi-turn conversations
+- Agent-based complex analysis
+- Conversation history tracking
+
+### Real-time Monitoring
+- EventBridge scheduled tasks
+- Data quality checks
+- Alert generation
+- Dashboard refresh
+
+## 📊 AWS Services Used
+
+| Service | Purpose |
+|---------|---------|
+| Lambda | Serverless compute |
+| S3 | Data storage |
+| DynamoDB | Conversation storage |
+| Elasticsearch | Search and analytics |
+| API Gateway | REST API |
+| Bedrock | AI models |
+| EventBridge | Scheduled tasks |
+| SNS | Notifications |
+| CloudFormation | Infrastructure |
+
+## 🛠️ Development
+
+### Local Development
+
+```bash
+# Frontend
+cd frontend
+npm install
+npm start
+
+# Backend (local testing)
+cd backend
+pip install -r requirements.txt
+python -m pytest
+```
+
+### Deploy Changes
+
+```bash
+# Infrastructure changes
+cd cdk
+npm run build
+npm run deploy
+
+# Frontend changes
+cd frontend
+npm run build
+npm run deploy
+
+# Backend changes (automatic via CDK)
+cd cdk
+npm run deploy
+```
+
+## 📋 Available Commands
+
+### CDK Commands
+```bash
+cd cdk
+npm run build      # Build TypeScript
+npm run synth      # Generate CloudFormation
+npm run diff       # Show infrastructure changes
+npm run deploy     # Deploy stacks
+npm run destroy    # Delete stacks
+```
+
+### Frontend Commands
+```bash
+cd frontend
+npm install        # Install dependencies
+npm start          # Start dev server
+npm run build      # Build for production
+npm run deploy     # Deploy to S3
+```
+
+### Backend Commands
+```bash
+cd backend
+pip install -r requirements.txt  # Install dependencies
+python -m pytest                 # Run tests
+```
+
+### Utility Scripts
+```bash
+# Setup EC2 instance
+./scripts/ec2setup.sh <repo-url> <branch>
+
+# Push code to GitHub
+./scripts/push-to-github.sh <repo-url> <branch>
+```
+
+## 🔐 Security
+
+- IAM roles with least privilege
+- S3 bucket public access blocked
+- Elasticsearch encryption enabled
+- Secrets Manager for API keys
+- VPC endpoints for private access
+
+## 💰 Cost Estimation
+
+| Service | Monthly Cost |
+|---------|--------------|
+| Lambda | $20-50 |
+| S3 | $10-20 |
+| DynamoDB | $5-10 |
+| Elasticsearch | $50-100 |
+| API Gateway | $5-10 |
+| **Total** | **~$90-190** |
+
+## 🐛 Troubleshooting
+
+### CDK Deployment Issues
+
+```bash
+# Check stack status
+aws cloudformation describe-stacks --stack-name pharma-ci-platform-dev
+
+# View stack events
+aws cloudformation describe-stack-events --stack-name pharma-ci-platform-dev
+
+# Check Lambda logs
+aws logs tail /aws/lambda/ci-* --follow
+```
+
+### Frontend Issues
+
+```bash
+# Clear cache and rebuild
+rm -rf node_modules package-lock.json
+npm install
+npm run build
+```
+
+### Backend Issues
+
+```bash
+# Check Lambda function
+aws lambda get-function --function-name ci-api-dev
+
+# View function logs
+aws logs tail /aws/lambda/ci-api-dev --follow
+```
+
+## 📞 Support
+
+For issues or questions:
+1. Check documentation in `SYSTEM_ARCHITECTURE.md`
+2. Review deployment guide in `FINAL_DEPLOYMENT_GUIDE.md`
+3. Check CDK documentation in `cdk/README.md`
+4. Review AWS CloudFormation events for deployment errors
+
+## 📝 License
+
+Proprietary - Pharmaceutical CI Platform
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch
-3. Make changes
-4. Run tests
-5. Submit pull request
+1. Create feature branch
+2. Make changes
+3. Test locally
+4. Push to GitHub
+5. Create pull request
 
-## 📄 License
+## 📅 Deployment Checklist
 
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-### Common Issues
-
-1. **Deployment Fails**
-   - Check AWS permissions
-   - Verify region availability
-   - Review CloudFormation events
-
-2. **Data Ingestion Issues**
-   - Verify API keys in Secrets Manager
-   - Check network connectivity
-   - Review Lambda logs
-
-3. **Frontend Not Loading**
-   - Check S3 bucket policy
-   - Verify API endpoint configuration
-   - Review browser console
-
-### Getting Help
-
-- Check CloudWatch logs
-- Review deployment outputs
-- Consult AWS documentation
-- Open GitHub issue
-
-## 🔮 Roadmap
-
-- [ ] Multi-tenant support
-- [ ] Advanced ML models
-- [ ] Real-time streaming
-- [ ] Mobile application
-- [ ] Advanced visualizations
-- [ ] Integration APIs
-- [ ] Compliance reporting
-- [ ] Advanced security features
+- [ ] AWS credentials configured
+- [ ] CDK dependencies installed
+- [ ] Infrastructure deployed (`cdk deploy`)
+- [ ] API keys configured in Secrets Manager
+- [ ] Frontend built and deployed
+- [ ] Backend Lambda functions deployed
+- [ ] EventBridge rules active
+- [ ] Monitoring and alerts configured
+- [ ] Backup strategy implemented
+- [ ] Documentation updated
 
 ---
 
-**Built with ❤️ for pharmaceutical competitive intelligence**
+**Last Updated**: January 2026
+**Version**: 1.0.0

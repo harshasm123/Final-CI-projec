@@ -1,9 +1,9 @@
 #!/bin/bash
 
-################################################################################
-# Pharmaceutical CI Platform - Complete Deployment Script
-# Deploys the entire serverless competitive intelligence platform
-################################################################################
+#############################################
+# Pharmaceutical CI Platform Deployment
+# Complete deployment with CDK + Frontend
+#############################################
 
 set -e
 
@@ -24,8 +24,6 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 ENVIRONMENT=${1:-dev}
 REGION=${2:-us-east-1}
 STACK_NAME="pharma-ci-platform-${ENVIRONMENT}"
-BEDROCK_STACK_NAME="pharma-ci-bedrock-${ENVIRONMENT}"
-EVENTBRIDGE_STACK_NAME="pharma-ci-eventbridge-${ENVIRONMENT}"
 
 # Validate inputs
 if [[ ! "$ENVIRONMENT" =~ ^(dev|staging|prod)$ ]]; then
@@ -38,230 +36,210 @@ echo "Pharmaceutical CI Platform Deployment"
 echo "=========================================="
 echo "Environment: $ENVIRONMENT"
 echo "Region: $REGION"
-echo "Stack Name: $STACK_NAME"
 echo ""
 
-# Step 0: Check and cleanup failed stacks
-log_info "Checking for failed stacks..."
-STACK_STATUS=$(aws cloudformation describe-stacks \
-    --stack-name $STACK_NAME \
-    --region $REGION \
-    --query 'Stacks[0].StackStatus' \
-    --output text 2>/dev/null || echo "DOES_NOT_EXIST")
-
-if [ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" == "CREATE_FAILED" ] || [ "$STACK_STATUS" == "UPDATE_FAILED" ]; then
-    log_warning "Stack is in $STACK_STATUS state. Cleaning up..."
-    
-    # Delete the failed stack
-    aws cloudformation delete-stack \
-        --stack-name $STACK_NAME \
-        --region $REGION
-    
-    log_info "Waiting for stack deletion to complete (this may take a few minutes)..."
-    aws cloudformation wait stack-delete-complete \
-        --stack-name $STACK_NAME \
-        --region $REGION 2>/dev/null || true
-    
-    log_success "Failed stack cleaned up successfully"
-    echo ""
-elif [ "$STACK_STATUS" != "DOES_NOT_EXIST" ]; then
-    log_warning "Stack exists with status: $STACK_STATUS"
-    read -p "Do you want to continue with update? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_error "Deployment cancelled by user"
-        exit 1
-    fi
-fi
-echo ""
-
+# ============================================
 # Step 1: Prerequisites Check
-log_info "Running prerequisites check..."
+# ============================================
+log_info "Step 1: Running prerequisites check..."
 if [ -f "prereq.sh" ]; then
     chmod +x prereq.sh
     if ! ./prereq.sh; then
-        log_error "Prerequisites check failed. Please fix issues before deployment."
+        log_error "Prerequisites check failed"
         exit 1
     fi
 else
-    log_warning "Prerequisites script not found. Continuing with deployment..."
+    log_warning "Prerequisites script not found"
 fi
 echo ""
 
-# Step 1.5: Install zip if not available
-log_info "Checking for zip utility..."
-if ! command -v zip &> /dev/null; then
-    log_warning "zip not found. Installing..."
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq zip
-    elif command -v yum &> /dev/null; then
-        sudo yum install -y -q zip
-    elif command -v brew &> /dev/null; then
-        brew install zip
-    else
-        log_error "Could not install zip. Please install manually."
-        exit 1
-    fi
-    log_success "zip installed successfully"
-else
-    log_success "zip is available"
-fi
-echo ""
+# ============================================
+# Step 2: Deploy Infrastructure with CDK
+# ============================================
+log_info "Step 2: Deploying infrastructure with AWS CDK..."
 
-# Step 2: Create S3 bucket for deployment artifacts
-log_info "Creating deployment bucket..."
-BUCKET_NAME="pharma-ci-deployment-${ENVIRONMENT}-$(date +%s)"
-aws s3 mb s3://$BUCKET_NAME --region $REGION
-log_success "Created deployment bucket: $BUCKET_NAME"
-echo ""
-
-# Step 3: Package Lambda functions
-log_info "Packaging Lambda functions..."
-mkdir -p dist
-
-# Package comprehensive data ingestion
-log_info "Packaging comprehensive data ingestion..."
-cd backend/src
-zip -r ../../dist/comprehensive-data-ingestion.zip comprehensive_data_ingestion.py
-cd ../..
-
-# Package data quality pipeline
-log_info "Packaging data quality pipeline..."
-cd backend/src
-zip -r ../../dist/data-quality-pipeline.zip data_quality_pipeline.py
-cd ../..
-
-# Package other Lambda functions (if they exist)
-if [ -f "backend/src/dashboard_handler.py" ]; then
-    cd backend/src
-    zip -r ../../dist/dashboard-handler.zip dashboard_handler.py
-    cd ../..
-fi
-
-if [ -f "backend/src/brand_intelligence_handler.py" ]; then
-    cd backend/src
-    zip -r ../../dist/brand-intelligence-handler.zip brand_intelligence_handler.py
-    cd ../..
-fi
-
-if [ -f "backend/src/alerts_handler.py" ]; then
-    cd backend/src
-    zip -r ../../dist/alerts-handler.zip alerts_handler.py
-    cd ../..
-fi
-
-if [ -f "backend/src/ai_insights_handler.py" ]; then
-    cd backend/src
-    zip -r ../../dist/ai-insights-handler.zip ai_insights_handler.py
-    cd ../..
-fi
-
-log_success "Lambda functions packaged"
-echo ""
-
-# Step 4: Upload Lambda packages to S3
-log_info "Uploading Lambda packages..."
-aws s3 cp dist/ s3://$BUCKET_NAME/lambda/ --recursive
-log_success "Lambda packages uploaded"
-echo ""
-
-# Step 5: Deploy main infrastructure
-log_info "Deploying main infrastructure stack..."
-aws cloudformation deploy \
-    --template-file architecture.yaml \
-    --stack-name $STACK_NAME \
-    --parameter-overrides \
-        Environment=$ENVIRONMENT \
-        LambdaBucket=$BUCKET_NAME \
-    --capabilities CAPABILITY_IAM \
-    --region $REGION
-
-if [ $? -eq 0 ]; then
-    log_success "Main infrastructure deployed successfully"
-else
-    log_error "Main infrastructure deployment failed"
+if [ ! -d "cdk" ]; then
+    log_error "CDK directory not found"
     exit 1
 fi
+
+cd cdk
+
+# Install dependencies
+log_info "Installing CDK dependencies..."
+npm install --silent
+
+# Build TypeScript
+log_info "Building TypeScript..."
+npm run build
+
+# Synthesize CloudFormation
+log_info "Synthesizing CloudFormation template..."
+npm run synth -- --context environment=$ENVIRONMENT --context region=$REGION > /dev/null
+
+# Deploy stacks
+log_info "Deploying CloudFormation stacks..."
+npm run deploy -- \
+    --context environment=$ENVIRONMENT \
+    --context region=$REGION \
+    --require-approval never
+
+log_success "Infrastructure deployed successfully"
 echo ""
 
-# Step 6: Deploy Bedrock Agent
-log_info "Deploying Bedrock Agent..."
-if [ -f "bedrock-agent.yaml" ]; then
-    aws cloudformation deploy \
-        --template-file bedrock-agent.yaml \
-        --stack-name $BEDROCK_STACK_NAME \
-        --parameter-overrides \
-            Environment=$ENVIRONMENT \
-        --capabilities CAPABILITY_IAM \
-        --region $REGION
-    
-    if [ $? -eq 0 ]; then
-        log_success "Bedrock Agent deployed successfully"
-    else
-        log_warning "Bedrock Agent deployment failed (may need manual setup)"
-    fi
-else
-    log_warning "Bedrock Agent template not found"
-fi
-echo ""
-
-# Step 7: Deploy EventBridge Rules
-log_info "Deploying EventBridge scheduling rules..."
-if [ -f "comprehensive-eventbridge-rules.yaml" ]; then
-    aws cloudformation deploy \
-        --template-file comprehensive-eventbridge-rules.yaml \
-        --stack-name $EVENTBRIDGE_STACK_NAME \
-        --parameter-overrides \
-            Environment=$ENVIRONMENT \
-            MainStackName=$STACK_NAME \
-        --capabilities CAPABILITY_IAM \
-        --region $REGION
-    
-    if [ $? -eq 0 ]; then
-        log_success "EventBridge rules deployed successfully"
-    else
-        log_warning "EventBridge rules deployment failed"
-    fi
-else
-    log_warning "EventBridge rules template not found"
-fi
-echo ""
-
-# Step 8: Get stack outputs
+# Get stack outputs
 log_info "Retrieving stack outputs..."
 API_ENDPOINT=$(aws cloudformation describe-stacks \
     --stack-name $STACK_NAME \
     --region $REGION \
-    --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
-    --output text)
+    --query 'Stacks[0].Outputs[?OutputKey==`APIEndpoint`].OutputValue' \
+    --output text 2>/dev/null || echo "")
 
-S3_BUCKET=$(aws cloudformation describe-stacks \
+DATA_LAKE_BUCKET=$(aws cloudformation describe-stacks \
     --stack-name $STACK_NAME \
     --region $REGION \
-    --query 'Stacks[0].Outputs[?OutputKey==`DataBucket`].OutputValue' \
-    --output text)
+    --query 'Stacks[0].Outputs[?OutputKey==`DataLakeBucket`].OutputValue' \
+    --output text 2>/dev/null || echo "")
 
-OPENSEARCH_ENDPOINT=$(aws cloudformation describe-stacks \
+SEARCH_DOMAIN=$(aws cloudformation describe-stacks \
     --stack-name $STACK_NAME \
     --region $REGION \
-    --query 'Stacks[0].Outputs[?OutputKey==`OpenSearchEndpoint`].OutputValue' \
-    --output text)
+    --query 'Stacks[0].Outputs[?OutputKey==`SearchDomain`].OutputValue' \
+    --output text 2>/dev/null || echo "")
 
-log_success "Stack outputs retrieved"
+cd ..
 echo ""
 
-# Step 9: Configure API keys in Secrets Manager
-log_info "Setting up API keys in Secrets Manager..."
+# ============================================
+# Step 3: Deploy Frontend
+# ============================================
+log_info "Step 3: Deploying frontend..."
 
-# Create secrets for external APIs
+if [ ! -d "frontend" ]; then
+    log_error "Frontend directory not found"
+    exit 1
+fi
+
+cd frontend
+
+# Install dependencies
+log_info "Installing frontend dependencies..."
+npm install --silent
+
+# Create environment file
+log_info "Creating environment configuration..."
+cat > .env.local << EOF
+REACT_APP_API_ENDPOINT=$API_ENDPOINT
+REACT_APP_ENVIRONMENT=$ENVIRONMENT
+REACT_APP_REGION=$REGION
+EOF
+
+# Build frontend
+log_info "Building frontend..."
+npm run build
+
+# Create S3 bucket for frontend
+FRONTEND_BUCKET="ci-frontend-${ENVIRONMENT}-${RANDOM}"
+log_info "Creating S3 bucket for frontend: $FRONTEND_BUCKET"
+aws s3 mb s3://$FRONTEND_BUCKET --region $REGION 2>/dev/null || true
+
+# Configure bucket for static website hosting
+log_info "Configuring S3 bucket for static website hosting..."
+aws s3 website s3://$FRONTEND_BUCKET \
+    --index-document index.html \
+    --error-document index.html
+
+# Upload build files
+log_info "Uploading frontend files to S3..."
+aws s3 sync build/ s3://$FRONTEND_BUCKET --delete --quiet
+
+# Make bucket public
+log_info "Configuring bucket policy..."
+aws s3api put-bucket-policy \
+    --bucket $FRONTEND_BUCKET \
+    --policy "{
+        \"Version\": \"2012-10-17\",
+        \"Statement\": [{
+            \"Sid\": \"PublicReadGetObject\",
+            \"Effect\": \"Allow\",
+            \"Principal\": \"*\",
+            \"Action\": \"s3:GetObject\",
+            \"Resource\": \"arn:aws:s3:::$FRONTEND_BUCKET/*\"
+        }]
+    }" 2>/dev/null || true
+
+# Create CloudFront distribution
+log_info "Creating CloudFront distribution..."
+CLOUDFRONT_CONFIG=$(cat <<EOF
+{
+    "CallerReference": "pharma-ci-${ENVIRONMENT}-$(date +%s)",
+    "Comment": "Pharmaceutical CI Platform Frontend - $ENVIRONMENT",
+    "DefaultRootObject": "index.html",
+    "Origins": {
+        "Quantity": 1,
+        "Items": [{
+            "Id": "S3Origin",
+            "DomainName": "$FRONTEND_BUCKET.s3.${REGION}.amazonaws.com",
+            "S3OriginConfig": {
+                "OriginAccessIdentity": ""
+            }
+        }]
+    },
+    "DefaultCacheBehavior": {
+        "TargetOriginId": "S3Origin",
+        "ViewerProtocolPolicy": "redirect-to-https",
+        "AllowedMethods": {
+            "Quantity": 2,
+            "Items": ["GET", "HEAD"]
+        },
+        "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+        "Compress": true
+    },
+    "Enabled": true
+}
+EOF
+)
+
+DISTRIBUTION_ID=$(aws cloudfront create-distribution \
+    --distribution-config "$CLOUDFRONT_CONFIG" \
+    --query 'Distribution.Id' \
+    --output text 2>/dev/null || echo "")
+
+if [ -n "$DISTRIBUTION_ID" ]; then
+    log_success "CloudFront distribution created: $DISTRIBUTION_ID"
+    
+    # Get CloudFront domain
+    log_info "Waiting for CloudFront distribution to be ready..."
+    sleep 5
+    
+    CLOUDFRONT_DOMAIN=$(aws cloudfront get-distribution \
+        --id $DISTRIBUTION_ID \
+        --query 'Distribution.DomainName' \
+        --output text 2>/dev/null || echo "")
+    
+    if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+        log_success "CloudFront domain: $CLOUDFRONT_DOMAIN"
+    fi
+else
+    log_warning "Could not create CloudFront distribution"
+    CLOUDFRONT_DOMAIN="$FRONTEND_BUCKET.s3-website-${REGION}.amazonaws.com"
+fi
+
+cd ..
+echo ""
+
+# ============================================
+# Step 4: Configure API Keys
+# ============================================
+log_info "Step 4: Setting up API keys in Secrets Manager..."
+
 SECRETS=(
-    "pharma-ci/fda-api-key"
-    "pharma-ci/pubmed-api-key"
-    "pharma-ci/clinicaltrials-api-key"
-    "pharma-ci/news-api-key"
-    "pharma-ci/sec-api-key"
-    "pharma-ci/uspto-api-key"
+    "ci-fda-api-key"
+    "ci-pubmed-api-key"
+    "ci-clinicaltrials-api-key"
+    "ci-news-api-key"
+    "ci-sec-api-key"
+    "ci-uspto-api-key"
 )
 
 for secret in "${SECRETS[@]}"; do
@@ -280,149 +258,74 @@ done
 log_warning "Please configure actual API keys in AWS Secrets Manager"
 echo ""
 
-# Step 10: Deploy Frontend
-log_info "Deploying frontend..."
-if [ -d "frontend" ]; then
-    cd frontend
-    
-    # Install dependencies
-    log_info "Installing frontend dependencies..."
-    npm install
-    
-    # Create environment file
-    log_info "Creating environment configuration..."
-    cat > .env << EOF
-REACT_APP_API_ENDPOINT=$API_ENDPOINT
-REACT_APP_REGION=$REGION
-REACT_APP_ENVIRONMENT=$ENVIRONMENT
-EOF
-    
-    # Build frontend
-    log_info "Building frontend..."
-    npm run build
-    
-    # Deploy to S3 (if bucket exists)
-    if [ -n "$S3_BUCKET" ]; then
-        FRONTEND_BUCKET="${S3_BUCKET}-frontend"
-        
-        # Create frontend bucket
-        aws s3 mb s3://$FRONTEND_BUCKET --region $REGION 2>/dev/null || true
-        
-        # Configure bucket for static website hosting
-        aws s3 website s3://$FRONTEND_BUCKET \
-            --index-document index.html \
-            --error-document error.html
-        
-        # Upload build files
-        aws s3 sync build/ s3://$FRONTEND_BUCKET --delete
-        
-        # Make bucket public (for demo purposes)
-        aws s3api put-bucket-policy \
-            --bucket $FRONTEND_BUCKET \
-            --policy "{
-                \"Version\": \"2012-10-17\",
-                \"Statement\": [{
-                    \"Sid\": \"PublicReadGetObject\",
-                    \"Effect\": \"Allow\",
-                    \"Principal\": \"*\",
-                    \"Action\": \"s3:GetObject\",
-                    \"Resource\": \"arn:aws:s3:::$FRONTEND_BUCKET/*\"
-                }]
-            }"
-        
-        FRONTEND_URL="http://$FRONTEND_BUCKET.s3-website-$REGION.amazonaws.com"
-        log_success "Frontend deployed to: $FRONTEND_URL"
-    else
-        log_warning "Frontend built but not deployed (no S3 bucket found)"
-    fi
-    
-    cd ..
-else
-    log_warning "Frontend directory not found"
-fi
-echo ""
-
-# Step 11: Initialize data ingestion
-log_info "Initializing data ingestion..."
-if [ -n "$API_ENDPOINT" ]; then
-    # Trigger initial data ingestion
-    curl -X POST "$API_ENDPOINT/trigger-ingestion" \
-        -H "Content-Type: application/json" \
-        -d '{"source": "all", "initial": true}' \
-        &>/dev/null || log_warning "Could not trigger initial ingestion"
-    
-    log_success "Initial data ingestion triggered"
-else
-    log_warning "API endpoint not available for triggering ingestion"
-fi
-echo ""
-
-# Step 12: Cleanup deployment artifacts
-log_info "Cleaning up deployment artifacts..."
-rm -rf dist/
-aws s3 rb s3://$BUCKET_NAME --force
-log_success "Deployment artifacts cleaned up"
-echo ""
-
-# Step 13: Deployment summary
+# ============================================
+# Step 5: Deployment Summary
+# ============================================
 echo "=========================================="
-echo "Deployment Summary"
+echo "Deployment Complete!"
 echo "=========================================="
-log_success "Pharmaceutical CI Platform deployed successfully!"
 echo ""
-echo "Infrastructure:"
-echo "• Environment: $ENVIRONMENT"
-echo "• Region: $REGION"
-echo "• Main Stack: $STACK_NAME"
-echo "• Bedrock Stack: $BEDROCK_STACK_NAME"
-echo "• EventBridge Stack: $EVENTBRIDGE_STACK_NAME"
+echo -e "${GREEN}Infrastructure:${NC}"
+echo "  Environment: $ENVIRONMENT"
+echo "  Region: $REGION"
+echo "  Stack: $STACK_NAME"
 echo ""
 
 if [ -n "$API_ENDPOINT" ]; then
-    echo "API Endpoints:"
-    echo "• Main API: $API_ENDPOINT"
-    echo "• Dashboard: $API_ENDPOINT/dashboard"
-    echo "• Brand Intelligence: $API_ENDPOINT/brand-intelligence"
-    echo "• Alerts: $API_ENDPOINT/alerts"
-    echo "• AI Insights: $API_ENDPOINT/ai-insights"
+    echo -e "${GREEN}API Endpoint:${NC}"
+    echo "  $API_ENDPOINT"
     echo ""
 fi
 
-if [ -n "$FRONTEND_URL" ]; then
-    echo "Frontend:"
-    echo "• URL: $FRONTEND_URL"
+if [ -n "$DATA_LAKE_BUCKET" ]; then
+    echo -e "${GREEN}Data Storage:${NC}"
+    echo "  S3 Bucket: $DATA_LAKE_BUCKET"
     echo ""
 fi
 
-echo "Data Infrastructure:"
-echo "• S3 Bucket: $S3_BUCKET"
-echo "• OpenSearch: $OPENSEARCH_ENDPOINT"
+if [ -n "$SEARCH_DOMAIN" ]; then
+    echo -e "${GREEN}Search & Analytics:${NC}"
+    echo "  Elasticsearch: $SEARCH_DOMAIN"
+    echo ""
+fi
+
+echo -e "${GREEN}Frontend:${NC}"
+echo "  S3 Bucket: $FRONTEND_BUCKET"
+if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+    echo -e "  ${YELLOW}CloudFront CDN: https://$CLOUDFRONT_DOMAIN${NC}"
+    echo ""
+    echo -e "${BLUE}Access your application at:${NC}"
+    echo -e "  ${GREEN}https://$CLOUDFRONT_DOMAIN${NC}"
+else
+    echo "  S3 Website: http://$FRONTEND_BUCKET.s3-website-${REGION}.amazonaws.com"
+fi
 echo ""
 
-echo "Next Steps:"
-echo "1. Configure API keys in AWS Secrets Manager:"
+echo -e "${YELLOW}Next Steps:${NC}"
+echo "  1. Configure API keys in Secrets Manager:"
 for secret in "${SECRETS[@]}"; do
-    echo "   • $secret"
+    echo "     • $secret"
 done
 echo ""
-echo "2. Access the application:"
-if [ -n "$FRONTEND_URL" ]; then
-    echo "   • Frontend: $FRONTEND_URL"
-fi
-if [ -n "$API_ENDPOINT" ]; then
-    echo "   • API: $API_ENDPOINT"
+echo "  2. Access the application:"
+if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+    echo "     https://$CLOUDFRONT_DOMAIN"
+else
+    echo "     http://$FRONTEND_BUCKET.s3-website-${REGION}.amazonaws.com"
 fi
 echo ""
-echo "3. Monitor data ingestion in CloudWatch Logs"
-echo "4. Configure alerts and notifications"
-echo "5. Set up user authentication (if required)"
+echo "  3. Monitor Lambda functions:"
+echo "     aws logs tail /aws/lambda/ci-* --follow"
+echo ""
+echo "  4. View stack outputs:"
+echo "     aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION"
 echo ""
 
-echo "Documentation:"
-echo "• Architecture: architecture.yaml"
-echo "• Data Sources: COMPREHENSIVE_DATA_SOURCES.md"
-echo "• API Documentation: Available at $API_ENDPOINT/docs"
+echo -e "${YELLOW}Useful Commands:${NC}"
+echo "  View logs: aws logs tail /aws/lambda/ci-* --follow"
+echo "  Check stack: aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION"
+echo "  Destroy: cd cdk && npm run destroy -- --context environment=$ENVIRONMENT --context region=$REGION"
 echo ""
 
-log_success "Deployment completed successfully!"
+log_success "Deployment script completed successfully!"
 echo "=========================================="
