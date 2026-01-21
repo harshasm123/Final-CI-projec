@@ -25,7 +25,7 @@ export class FrontendSimpleStack extends cdk.Stack {
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: new origins.S3Origin(frontendBucket),
+        origin: new origins.S3StaticWebsiteOrigin(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },

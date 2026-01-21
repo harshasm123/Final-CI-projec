@@ -42,7 +42,8 @@ echo "🚀 Deploying stacks..."
 npm run deploy -- \
   --context environment=$ENVIRONMENT \
   --context region=$REGION \
-  --require-approval never
+  --require-approval never \
+  --all
 
 cd ..
 
