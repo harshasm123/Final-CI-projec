@@ -22,10 +22,10 @@ export class FrontendSimpleStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    // CloudFront Distribution with S3BucketOrigin
+    // CloudFront Distribution with S3Origin
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: new origins.S3BucketOrigin(frontendBucket),
+        origin: new origins.S3Origin(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
