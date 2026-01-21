@@ -25,7 +25,7 @@ export class FrontendStack extends cdk.Stack {
     // ============================================
     const vpc = new ec2.Vpc(this, 'FrontendVpc', {
       maxAzs: 2,
-      cidrBlock: '10.0.0.0/16',
+      cidr: '10.0.0.0/16',
       natGateways: 1,
     });
 
