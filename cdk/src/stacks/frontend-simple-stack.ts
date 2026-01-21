@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 interface FrontendStackProps extends cdk.StackProps {
@@ -22,10 +23,20 @@ export class FrontendSimpleStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    // CloudFront Distribution with S3Origin
+    // Origin Access Identity
+    const oai = new cloudfront.OriginAccessIdentity(this, 'OAI', {
+      comment: `OAI for ${environment} frontend`,
+    });
+
+    // Grant CloudFront access to S3
+    frontendBucket.grantRead(oai);
+
+    // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: new origins.S3Origin(frontendBucket),
+        origin: new origins.S3Origin(frontendBucket, {
+          originAccessIdentity: oai,
+        }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
