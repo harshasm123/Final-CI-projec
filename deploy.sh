@@ -107,7 +107,7 @@ if [ -d "frontend" ]; then
     cd frontend
     
     echo "  Installing frontend dependencies..."
-    npm install --silent
+    npm install
     
     echo "  Creating environment configuration..."
     cat > .env.local << EOF
@@ -117,13 +117,21 @@ REACT_APP_REGION=$REGION
 EOF
     
     echo "  Building frontend..."
-    npm run build
-    
-    echo "  Uploading to S3..."
-    aws s3 sync build/ s3://$FRONTEND_BUCKET --delete --quiet
+    if npm run build; then
+        echo "  ✅ Frontend build successful"
+        
+        if [ -d "build" ]; then
+            echo "  Uploading to S3..."
+            aws s3 sync build/ s3://$FRONTEND_BUCKET --delete --quiet
+            echo "  ✅ Frontend uploaded to S3"
+        else
+            echo "  ⚠️  Build directory not found"
+        fi
+    else
+        echo "  ❌ Frontend build failed"
+    fi
     
     cd ..
-    echo "  ✅ Frontend deployed"
 else
     echo "  ⚠️  Frontend directory not found"
 fi
