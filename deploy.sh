@@ -8,12 +8,14 @@ echo ""
 # Configuration
 REGION=${2:-us-west-2}
 ENVIRONMENT=${1:-dev}
+FRONTEND_TYPE=${3:-amplify}  # amplify, ecs, static
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 echo "📋 Configuration:"
 echo "  Region: $REGION"
 echo "  Account: $ACCOUNT_ID"
 echo "  Environment: $ENVIRONMENT"
+echo "  Frontend: $FRONTEND_TYPE"
 echo ""
 
 # Prerequisites
@@ -101,62 +103,110 @@ CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
 
 # Deploy frontend files
 echo ""
-echo "🎨 Deploying frontend application..."
+echo "🎨 Deploying frontend application ($FRONTEND_TYPE)..."
 
 if [ -d "frontend" ]; then
-    # Create minimal index.html
-    mkdir -p frontend/build
-    cat > frontend/build/index.html << 'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Pharmaceutical CI Platform</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
-        h1 { color: #333; }
-        .status { background: #e8f5e9; padding: 10px; border-radius: 4px; margin: 10px 0; }
-        .info { background: #e3f2fd; padding: 10px; border-radius: 4px; margin: 10px 0; }
-        code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🧬 Pharmaceutical CI Platform</h1>
-        <div class="status">
-            <strong>✅ Status:</strong> Platform is running
-        </div>
-        <div class="info">
-            <strong>📊 Infrastructure:</strong>
-            <ul>
-                <li>API Endpoint: Available</li>
-                <li>Data Storage: S3 Configured</li>
-                <li>RAG & Bedrock: Ready</li>
-            </ul>
-        </div>
-        <div class="info">
-            <strong>🚀 Next Steps:</strong>
-            <ol>
-                <li>Enable Bedrock models in AWS Console</li>
-                <li>Create Knowledge Base</li>
-                <li>Create Bedrock Agent</li>
-                <li>Upload sample data</li>
-            </ol>
-        </div>
-        <div class="info">
-            <strong>📝 API Test:</strong>
-            <code>curl https://API_ENDPOINT/health</code>
-        </div>
-    </div>
-</body>
-</html>
+    case $FRONTEND_TYPE in
+        "amplify")
+            echo "  🚀 Deploying with AWS Amplify..."
+            if [ -f "amplify-frontend.yaml" ]; then
+                aws cloudformation deploy \
+                    --template-file amplify-frontend.yaml \
+                    --stack-name "pharma-ci-amplify-${ENVIRONMENT}" \
+                    --parameter-overrides \
+                        Environment=$ENVIRONMENT \
+                        GitHubRepo="https://github.com/your-org/pharma-ci-platform" \
+                        GitHubBranch=main \
+                        GitHubToken=${GITHUB_TOKEN:-placeholder} \
+                    --capabilities CAPABILITY_IAM \
+                    --region $REGION
+                
+                AMPLIFY_URL=$(aws cloudformation describe-stacks \
+                    --stack-name "pharma-ci-amplify-${ENVIRONMENT}" \
+                    --region $REGION \
+                    --query 'Stacks[0].Outputs[?OutputKey==`AmplifyURL`].OutputValue' \
+                    --output text 2>/dev/null || echo "Amplify URL pending...")
+                
+                echo "  ✅ Amplify deployment initiated: $AMPLIFY_URL"
+            else
+                echo "  ⚠️  amplify-frontend.yaml not found"
+            fi
+            ;;
+            
+        "ecs")
+            echo "  🐳 Deploying with ECS Fargate..."
+            
+            cd frontend
+            
+            # Build React app
+            npm install --silent
+            npm run build
+            
+            # Create Dockerfile if needed
+            if [ ! -f "Dockerfile" ]; then
+                cat > Dockerfile << 'EOF'
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+RUN npm run build
+RUN npm install -g serve
+EXPOSE 3000
+CMD ["serve", "-s", "build", "-l", "3000"]
 EOF
-    
-    echo "  ✅ Frontend HTML created"
-    
-    echo "  Uploading to S3..."
-    aws s3 sync frontend/build/ s3://$FRONTEND_BUCKET --delete --quiet
-    echo "  ✅ Frontend uploaded to S3"
+            fi
+            
+            # Docker build and push
+            if command -v docker &> /dev/null; then
+                aws ecr describe-repositories --repository-names pharma-ci-frontend --region $REGION 2>/dev/null || \
+                aws ecr create-repository --repository-name pharma-ci-frontend --region $REGION
+                
+                aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
+                
+                docker build -t pharma-ci-frontend .
+                docker tag pharma-ci-frontend:latest ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/pharma-ci-frontend:latest
+                docker push ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/pharma-ci-frontend:latest
+                
+                echo "  ✅ Docker image pushed to ECR"
+            else
+                echo "  ⚠️  Docker not found, skipping ECS deployment"
+            fi
+            
+            cd ..
+            ;;
+            
+        "static")
+            echo "  📁 Deploying static build..."
+            
+            cd frontend
+            npm install --silent
+            
+            # Create environment file
+            cat > .env << EOF
+REACT_APP_API_ENDPOINT=$API_ENDPOINT
+REACT_APP_REGION=$REGION
+REACT_APP_ENVIRONMENT=$ENVIRONMENT
+EOF
+            
+            npm run build
+            
+            # Upload to existing S3 bucket
+            if [ -n "$FRONTEND_BUCKET" ]; then
+                aws s3 sync build/ s3://$FRONTEND_BUCKET --delete --quiet
+                echo "  ✅ React app deployed to S3"
+            else
+                echo "  ⚠️  No S3 bucket found for static deployment"
+            fi
+            
+            cd ..
+            ;;
+            
+        *)
+            echo "  ❌ Invalid frontend type: $FRONTEND_TYPE"
+            echo "  Valid options: amplify, ecs, static"
+            ;;
+    esac
 else
     echo "  ⚠️  Frontend directory not found"
 fi
@@ -187,4 +237,9 @@ echo "  2. Create Knowledge Base: AWS Console → Bedrock → Knowledge bases"
 echo "  3. Create Bedrock Agent: AWS Console → Bedrock → Agents"
 echo "  4. Upload sample data to: s3://$KB_BUCKET"
 echo "  5. Configure API keys in Secrets Manager"
+echo ""
+echo "🚀 Frontend deployment options:"
+echo "  Amplify: ./deploy.sh $ENVIRONMENT $REGION amplify"
+echo "  ECS Fargate: ./deploy.sh $ENVIRONMENT $REGION ecs"
+echo "  Static S3: ./deploy.sh $ENVIRONMENT $REGION static"
 echo ""
