@@ -49,7 +49,7 @@ cd ..
 
 # Get outputs
 echo ""
-echo "📋 Stack Outputs:"
+echo "📋 Retrieving stack outputs..."
 CORE_STACK="pharma-ci-platform-${ENVIRONMENT}"
 RAG_STACK="pharma-ci-rag-${ENVIRONMENT}"
 FRONTEND_STACK="pharma-ci-frontend-${ENVIRONMENT}"
