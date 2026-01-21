@@ -8,84 +8,53 @@ interface RAGStackProps extends cdk.StackProps {
 }
 
 export class RAGStack extends cdk.Stack {
-  public readonly knowledgeBaseBucket: s3.Bucket;
-  public readonly bedrockRagRole: iam.Role;
-
   constructor(scope: Construct, id: string, props: RAGStackProps) {
     super(scope, id, props);
 
     const environment = props.environment;
 
-    // ============================================
-    // S3 Bucket for Knowledge Base
-    // ============================================
-    this.knowledgeBaseBucket = new s3.Bucket(this, 'KnowledgeBaseBucket', {
+    // Knowledge Base S3 Bucket
+    const knowledgeBaseBucket = new s3.Bucket(this, 'KnowledgeBaseBucket', {
       bucketName: `ci-knowledge-base-${environment}-${this.account}`,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       versioned: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      lifecycleRules: [
-        {
-          transitions: [
-            {
-              storageClass: s3.StorageClass.INTELLIGENT_TIERING,
-              transitionAfter: cdk.Duration.days(30),
-            },
-          ],
-        },
-      ],
     });
 
-    // ============================================
-    // IAM Role for Bedrock RAG
-    // ============================================
-    this.bedrockRagRole = new iam.Role(this, 'BedrockRAGRole', {
+    // Bedrock Agent Role
+    const bedrockRole = new iam.Role(this, 'BedrockAgentRole', {
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
-      description: 'Role for Bedrock RAG with Knowledge Base access',
+      description: 'Role for Bedrock Agent',
     });
 
-    // S3 access for knowledge base
-    this.bedrockRagRole.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          's3:GetObject',
-          's3:ListBucket',
-          's3:GetBucketLocation',
-        ],
-        resources: [
-          this.knowledgeBaseBucket.bucketArn,
-          this.knowledgeBaseBucket.arnForObjects('*'),
-        ],
-      })
-    );
+    // Grant Bedrock permissions to S3
+    knowledgeBaseBucket.grantRead(bedrockRole);
 
-    // Bedrock model invocation
-    this.bedrockRagRole.addToPrincipalPolicy(
+    // Grant Bedrock model invocation permissions
+    bedrockRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
         actions: [
           'bedrock:InvokeModel',
           'bedrock:InvokeModelWithResponseStream',
         ],
-        resources: ['*'],
+        resources: [
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0`,
+          `arn:aws:bedrock:${this.region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
+          `arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v1`,
+        ],
       })
     );
 
-    // ============================================
     // Outputs
-    // ============================================
-    new cdk.CfnOutput(this, 'KnowledgeBaseBucket', {
-      value: this.knowledgeBaseBucket.bucketName,
+    new cdk.CfnOutput(this, 'KnowledgeBaseBucketOutput', {
+      value: knowledgeBaseBucket.bucketName,
       exportName: `${this.stackName}-KnowledgeBaseBucket`,
     });
 
-    new cdk.CfnOutput(this, 'BedrockRAGRoleArn', {
-      value: this.bedrockRagRole.roleArn,
-      exportName: `${this.stackName}-BedrockRAGRoleArn`,
-    });
-
-    new cdk.CfnOutput(this, 'KnowledgeBaseUploadCommand', {
-      value: `aws s3 cp your-documents/ s3://${this.knowledgeBaseBucket.bucketName}/ --recursive`,
-      exportName: `${this.stackName}-KnowledgeBaseUploadCommand`,
+    new cdk.CfnOutput(this, 'BedrockRoleArnOutput', {
+      value: bedrockRole.roleArn,
+      exportName: `${this.stackName}-BedrockRoleArn`,
     });
   }
 }
