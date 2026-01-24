@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as opensearch from 'aws-cdk-lib/aws-opensearch';
+import * as elasticsearch from 'aws-cdk-lib/aws-elasticsearch';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
@@ -13,7 +13,7 @@ export class DataStack extends cdk.Stack {
   public readonly dataBucket: s3.Bucket;
   public readonly knowledgeBucket: s3.Bucket;
   public readonly conversationTable: dynamodb.Table;
-  public readonly searchDomain: opensearch.Domain;
+  public readonly searchDomain: elasticsearch.Domain;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -47,12 +47,12 @@ export class DataStack extends cdk.Stack {
       pointInTimeRecovery: true,
     });
 
-    // OpenSearch Domain
-    this.searchDomain = new opensearch.Domain(this, 'SearchDomain', {
-      version: opensearch.EngineVersion.OPENSEARCH_2_11,
+    // Elasticsearch Domain
+    this.searchDomain = new elasticsearch.Domain(this, 'SearchDomain', {
+      version: elasticsearch.ElasticsearchVersion.V7_10,
       capacity: {
         dataNodes: 1,
-        dataNodeInstanceType: 't3.small.search',
+        dataNodeInstanceType: 't3.small.elasticsearch',
       },
       ebs: {
         volumeSize: 20,
@@ -79,11 +79,6 @@ export class DataStack extends cdk.Stack {
           principals: [new iam.AnyPrincipal()],
           actions: ['es:*'],
           resources: ['*'],
-          conditions: {
-            IpAddress: {
-              'aws:SourceIp': ['0.0.0.0/0'], // Will be restricted by Lambda execution role
-            },
-          },
         }),
       ],
       removalPolicy: cdk.RemovalPolicy.DESTROY,

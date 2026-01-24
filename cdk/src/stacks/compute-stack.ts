@@ -6,7 +6,7 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as opensearch from 'aws-cdk-lib/aws-opensearch';
+import * as elasticsearch from 'aws-cdk-lib/aws-elasticsearch';
 import { Construct } from 'constructs';
 
 interface ComputeStackProps extends cdk.StackProps {
@@ -14,7 +14,7 @@ interface ComputeStackProps extends cdk.StackProps {
   dataBucket: s3.Bucket;
   knowledgeBucket: s3.Bucket;
   conversationTable: dynamodb.Table;
-  searchDomain: opensearch.Domain;
+  searchDomain: elasticsearch.Domain;
 }
 
 export class ComputeStack extends cdk.Stack {
