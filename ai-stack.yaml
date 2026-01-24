@@ -12,7 +12,7 @@ Resources:
   KnowledgeBaseBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'ci-knowledge-base-${Environment}-${AWS::AccountId}'
+      BucketName: !Sub 'ci-knowledge-base-${Environment}-${AWS::AccountId}-${AWS::StackId}'
       VersioningConfiguration:
         Status: Enabled
       PublicAccessBlockConfiguration:
