@@ -17,7 +17,6 @@ export class FrontendSimpleStack extends cdk.Stack {
 
     // Frontend S3 Bucket
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
-      bucketName: `ci-frontend-${environment}-${this.account}`,
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html',
       publicReadAccess: true,

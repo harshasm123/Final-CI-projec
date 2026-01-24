@@ -17,7 +17,6 @@ export class RAGStack extends cdk.Stack {
 
     // Knowledge Base S3 Bucket
     const knowledgeBaseBucket = new s3.Bucket(this, 'KnowledgeBaseBucket', {
-      bucketName: `ci-knowledge-base-${environment}-${this.account}`,
       versioned: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
