@@ -20,6 +20,7 @@ export class RAGStack extends cdk.Stack {
       versioned: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      enforceSSL: true,
     });
 
     // AI Lambda Function

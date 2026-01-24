@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
@@ -19,11 +20,20 @@ export class FrontendSimpleStack extends cdk.Stack {
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       websiteIndexDocument: 'index.html',
       websiteErrorDocument: 'index.html',
-      publicReadAccess: true,
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ACLS,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
+
+    // Add bucket policy for public read access
+    frontendBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        sid: 'PublicReadGetObject',
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.AnyPrincipal()],
+        actions: ['s3:GetObject'],
+        resources: [`${frontendBucket.bucketArn}/*`],
+      })
+    );
 
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
