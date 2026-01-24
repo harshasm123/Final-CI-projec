@@ -1,145 +1,105 @@
 import * as cdk from 'aws-cdk-lib';
-import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 interface FrontendStackProps extends cdk.StackProps {
   environment: string;
+  apiUrl: string;
 }
 
 export class FrontendStack extends cdk.Stack {
-  public readonly loadBalancer: elbv2.ApplicationLoadBalancer;
-  public readonly ecsCluster: ecs.Cluster;
-  public readonly fargateService: ecs.FargateService;
-
   constructor(scope: Construct, id: string, props: FrontendStackProps) {
     super(scope, id, props);
 
-    const environment = props.environment;
+    const { environment, apiUrl } = props;
 
-    // ============================================
-    // VPC for ECS Fargate
-    // ============================================
-    const vpc = new ec2.Vpc(this, 'FrontendVpc', {
-      maxAzs: 2,
-      cidr: '10.0.0.0/16',
-      natGateways: 1,
-    });
-
-    // ============================================
-    // ECS Cluster
-    // ============================================
-    this.ecsCluster = new ecs.Cluster(this, 'FrontendCluster', {
-      vpc,
-      clusterName: `ci-frontend-cluster-${environment}`,
-    });
-
-    // ============================================
-    // Application Load Balancer
-    // ============================================
-    this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'ALB', {
-      vpc,
-      internetFacing: true,
-      loadBalancerName: `ci-frontend-alb-${environment}`,
-    });
-
-    // ============================================
-    // ECS Task Definition
-    // ============================================
-    const taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDef', {
-      memoryLimitMiB: 512,
-      cpu: 256,
-      family: `ci-frontend-task-${environment}`,
-    });
-
-    // Add container
-    const container = taskDefinition.addContainer('ReactNginx', {
-      image: ecs.ContainerImage.fromRegistry('nginx:latest'),
-      logging: ecs.LogDriver.awsLogs({
-        streamPrefix: 'ci-frontend',
-        logRetention: logs.RetentionDays.ONE_WEEK,
+    // Frontend S3 Bucket
+    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      blockPublicAccess: new s3.BlockPublicAccess({
+        blockPublicAcls: false,
+        blockPublicPolicy: false,
+        ignorePublicAcls: false,
+        restrictPublicBuckets: false,
       }),
-      portMappings: [
+    });
+
+    // Bucket policy for public read access
+    frontendBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        sid: 'PublicReadGetObject',
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.AnyPrincipal()],
+        actions: ['s3:GetObject'],
+        resources: [`${frontendBucket.bucketArn}/*`],
+      })
+    );
+
+    // CloudFront Distribution
+    const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      defaultBehavior: {
+        origin: new origins.S3Origin(frontendBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      },
+      defaultRootObject: 'index.html',
+      errorResponses: [
         {
-          containerPort: 80,
-          protocol: ecs.Protocol.TCP,
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(30),
+        },
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(30),
         },
       ],
     });
 
-    // ============================================
-    // ECS Fargate Service
-    // ============================================
-    this.fargateService = new ecs.FargateService(this, 'FargateService', {
-      cluster: this.ecsCluster,
-      taskDefinition,
-      desiredCount: 2,
-      serviceName: `ci-frontend-service-${environment}`,
-      assignPublicIp: false,
-    });
+    // Deploy frontend files (if build directory exists)
+    try {
+      new s3deploy.BucketDeployment(this, 'DeployWebsite', {
+        sources: [s3deploy.Source.asset('../frontend/build')],
+        destinationBucket: frontendBucket,
+        distribution,
+        distributionPaths: ['/*'],
+      });
+    } catch (error) {
+      // Build directory doesn't exist yet - that's okay
+      console.log('Frontend build directory not found - deploy manually after building');
+    }
 
-    // ============================================
-    // Load Balancer Target Group
-    // ============================================
-    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'FargateTargetGroup', {
-      vpc,
-      port: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP,
-      healthCheck: {
-        path: '/',
-        interval: cdk.Duration.seconds(60),
-        timeout: cdk.Duration.seconds(5),
-        healthyThresholdCount: 2,
-        unhealthyThresholdCount: 3,
-      },
-    });
-
-    this.fargateService.attachToApplicationTargetGroup(targetGroup);
-
-    // ============================================
-    // ALB Listener
-    // ============================================
-    this.loadBalancer.addListener('HttpListener', {
-      port: 80,
-      defaultTargetGroups: [targetGroup],
-    });
-
-    // ============================================
-    // Auto Scaling
-    // ============================================
-    const scaling = this.fargateService.autoScaleTaskCount({
-      minCapacity: 2,
-      maxCapacity: 10,
-    });
-
-    scaling.scaleOnCpuUtilization('CpuScaling', {
-      targetUtilizationPercent: 70,
-    });
-
-    scaling.scaleOnMemoryUtilization('MemoryScaling', {
-      targetUtilizationPercent: 80,
-    });
-
-    // ============================================
     // Outputs
-    // ============================================
-    new cdk.CfnOutput(this, 'LoadBalancerDNS', {
-      value: this.loadBalancer.loadBalancerDnsName,
-      exportName: `${this.stackName}-LoadBalancerDNS`,
+    new cdk.CfnOutput(this, 'FrontendBucketName', {
+      value: frontendBucket.bucketName,
+      exportName: `${this.stackName}-FrontendBucket`,
     });
 
-    new cdk.CfnOutput(this, 'LoadBalancerURL', {
-      value: `http://${this.loadBalancer.loadBalancerDnsName}`,
-      exportName: `${this.stackName}-LoadBalancerURL`,
+    new cdk.CfnOutput(this, 'WebsiteURL', {
+      value: frontendBucket.bucketWebsiteUrl,
+      exportName: `${this.stackName}-WebsiteURL`,
     });
 
-    new cdk.CfnOutput(this, 'ECSClusterName', {
-      value: this.ecsCluster.clusterName,
-      exportName: `${this.stackName}-ECSClusterName`,
+    new cdk.CfnOutput(this, 'CloudFrontURL', {
+      value: `https://${distribution.domainName}`,
+      exportName: `${this.stackName}-CloudFrontURL`,
+    });
+
+    new cdk.CfnOutput(this, 'APIEndpointForFrontend', {
+      value: apiUrl,
+      exportName: `${this.stackName}-APIEndpoint`,
     });
   }
 }

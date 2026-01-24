@@ -22,6 +22,12 @@ export class FrontendSimpleStack extends cdk.Stack {
       websiteErrorDocument: 'index.html',
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      blockPublicAccess: new s3.BlockPublicAccess({
+        blockPublicAcls: false,
+        blockPublicPolicy: false,
+        ignorePublicAcls: false,
+        restrictPublicBuckets: false,
+      }),
     });
 
     // Add bucket policy for public read access
@@ -38,8 +44,10 @@ export class FrontendSimpleStack extends cdk.Stack {
     // CloudFront Distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        origin: new origins.S3Origin(frontendBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
       },
       defaultRootObject: 'index.html',
       errorResponses: [
@@ -47,11 +55,13 @@ export class FrontendSimpleStack extends cdk.Stack {
           httpStatus: 403,
           responseHttpStatus: 200,
           responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(30),
         },
         {
           httpStatus: 404,
           responseHttpStatus: 200,
           responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(30),
         },
       ],
     });
@@ -60,6 +70,11 @@ export class FrontendSimpleStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'FrontendBucketOutput', {
       value: frontendBucket.bucketName,
       exportName: `${this.stackName}-FrontendBucket`,
+    });
+
+    new cdk.CfnOutput(this, 'WebsiteURLOutput', {
+      value: frontendBucket.bucketWebsiteUrl,
+      exportName: `${this.stackName}-WebsiteURL`,
     });
 
     new cdk.CfnOutput(this, 'CloudFrontURLOutput', {

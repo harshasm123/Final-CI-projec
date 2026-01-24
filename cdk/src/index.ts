@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
-import { MinimalStack } from './stacks/minimal-stack';
-import { RAGStack } from './stacks/rag-stack';
-import { FrontendSimpleStack } from './stacks/frontend-simple-stack';
+import { DataStack } from './stacks/data-stack';
+import { ComputeStack } from './stacks/compute-stack';
+import { FrontendStack } from './stacks/frontend-stack';
 
 const app = new cdk.App();
 
@@ -13,29 +13,36 @@ const env = {
   region: region,
 };
 
-// Core Infrastructure Stack
-const coreStack = new MinimalStack(app, `pharma-ci-platform-${environment}`, {
+const stackPrefix = `pharma-ci-${environment}`;
+
+// Data Layer Stack (S3, DynamoDB, OpenSearch)
+const dataStack = new DataStack(app, `${stackPrefix}-data`, {
   env,
   environment,
-  description: 'Pharmaceutical CI Platform - Core Infrastructure',
+  description: 'Pharmaceutical CI Platform - Data Layer',
 });
 
-// RAG Stack (Bedrock + Knowledge Base)
-const ragStack = new RAGStack(app, `pharma-ci-rag-${environment}`, {
+// Compute Stack (Lambda, API Gateway, Bedrock)
+const computeStack = new ComputeStack(app, `${stackPrefix}-compute`, {
   env,
   environment,
-  description: 'Pharmaceutical CI Platform - RAG & Bedrock',
+  description: 'Pharmaceutical CI Platform - Compute Layer',
+  dataBucket: dataStack.dataBucket,
+  knowledgeBucket: dataStack.knowledgeBucket,
+  conversationTable: dataStack.conversationTable,
+  searchDomain: dataStack.searchDomain,
 });
 
 // Frontend Stack (S3 + CloudFront)
-const frontendStack = new FrontendSimpleStack(app, `pharma-ci-frontend-${environment}`, {
+const frontendStack = new FrontendStack(app, `${stackPrefix}-frontend`, {
   env,
   environment,
   description: 'Pharmaceutical CI Platform - Frontend',
+  apiUrl: computeStack.apiUrl,
 });
 
 // Dependencies
-ragStack.addDependency(coreStack);
-frontendStack.addDependency(coreStack);
+computeStack.addDependency(dataStack);
+frontendStack.addDependency(computeStack);
 
 app.synth();

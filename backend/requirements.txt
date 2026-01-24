@@ -3,3 +3,6 @@ opensearch-py==2.4.0
 aws-requests-auth==0.4.3
 requests==2.31.0
 python-dateutil==2.8.2
+xml-python==0.4.3
+beautifulsoup4==4.12.2
+lxml==4.9.3

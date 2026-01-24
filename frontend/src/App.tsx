@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -26,6 +26,26 @@ const theme = createTheme({
 
 const queryClient = new QueryClient();
 
+function DocumentTitle() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    const titles: { [key: string]: string } = {
+      '/': 'Dashboard - Pharma CI Platform',
+      '/brand': 'Brand Intelligence - Pharma CI Platform',
+      '/competitive': 'Competitive Landscape - Pharma CI Platform',
+      '/alerts': 'Alert Center - Pharma CI Platform',
+      '/insights': 'AI Insights - Pharma CI Platform',
+      '/chatbot': 'AI Chatbot - Pharma CI Platform',
+    };
+    
+    const path = location.pathname.split('/')[1] ? `/${location.pathname.split('/')[1]}` : '/';
+    document.title = titles[path] || 'Pharma CI Platform';
+  }, [location]);
+  
+  return null;
+}
+
 function App() {
   return (
     <Provider store={store}>
@@ -33,9 +53,10 @@ function App() {
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <Router>
+            <DocumentTitle />
             <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
               <Navbar />
-              <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+              <Box component="main" sx={{ flexGrow: 1, p: 3 }} role="main">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/brand/:brandId?" element={<BrandIntelligence />} />

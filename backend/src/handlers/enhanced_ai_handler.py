@@ -1,376 +1,374 @@
 import json
 import boto3
-from typing import Dict, Any
+import os
 from datetime import datetime
-from services.opensearch_service import OpenSearchService
+from typing import Dict, List, Any, Optional
+from opensearchpy import OpenSearch, RequestsHttpConnection
+from aws_requests_auth.aws_auth import AWSRequestsAuth
 
 class EnhancedAIHandler:
     def __init__(self):
-        self.bedrock_agent = boto3.client('bedrock-agent-runtime')
-        self.bedrock = boto3.client('bedrock-runtime')
-        self.opensearch = OpenSearchService()
+        self.bedrock_client = boto3.client('bedrock-runtime')
+        self.dynamodb = boto3.resource('dynamodb')
+        self.s3_client = boto3.client('s3')
         
-        # Get agent configuration from environment
-        self.agent_id = os.environ.get('BEDROCK_AGENT_ID', '')
-        self.agent_alias_id = os.environ.get('BEDROCK_AGENT_ALIAS_ID', 'TSTALIASID')
-    
-    def ask_question(self, request_body: Dict[str, Any]) -> Dict[str, Any]:
-        """Process natural language questions using Bedrock Agent"""
-        try:
-            question = request_body.get('question', '')
-            session_id = request_body.get('sessionId', f'session-{int(datetime.now().timestamp())}')
+        # Environment variables
+        self.conversation_table_name = os.environ.get('CONVERSATION_TABLE')
+        self.knowledge_bucket = os.environ.get('KNOWLEDGE_BUCKET')
+        self.opensearch_endpoint = os.environ.get('OPENSEARCH_ENDPOINT')
+        
+        # Initialize conversation table
+        if self.conversation_table_name:
+            self.conversation_table = self.dynamodb.Table(self.conversation_table_name)
+        
+        # Initialize OpenSearch client
+        if self.opensearch_endpoint:
+            host = self.opensearch_endpoint.replace('https://', '')
+            region = os.environ.get('AWS_REGION', 'us-east-1')
+            credentials = boto3.Session().get_credentials()
+            awsauth = AWSRequestsAuth(credentials, region, 'es')
             
-            if not question:
-                return self._error_response('Question is required')
-            
-            # Use Bedrock Agent for enhanced CI analysis
-            if self.agent_id:
-                return self._invoke_bedrock_agent(question, session_id)
-            else:
-                # Fallback to direct Bedrock model
-                return self._invoke_direct_bedrock(question)
-                
-        except Exception as e:
-            return self._error_response(f'AI processing failed: {str(e)}')
+            self.opensearch_client = OpenSearch(
+                hosts=[{'host': host, 'port': 443}],
+                http_auth=awsauth,
+                use_ssl=True,
+                verify_certs=True,
+                connection_class=RequestsHttpConnection
+            )
     
-    def _invoke_bedrock_agent(self, question: str, session_id: str) -> Dict[str, Any]:
-        """Invoke Bedrock Agent for CI analysis"""
+    def lambda_handler(self, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+        """Main Lambda handler for AI chatbot"""
         try:
-            # Invoke the CI Analysis Agent
-            response = self.bedrock_agent.invoke_agent(
-                agentId=self.agent_id,
-                agentAliasId=self.agent_alias_id,
-                sessionId=session_id,
-                inputText=question
+            # Parse request
+            body = json.loads(event.get('body', '{}'))
+            user_message = body.get('message', '')
+            conversation_id = body.get('conversationId', f"conv_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            user_id = body.get('userId', 'anonymous')
+            
+            if not user_message:
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({'error': 'Message is required'})
+                }
+            
+            # Get conversation history
+            conversation_history = self.get_conversation_history(conversation_id)
+            
+            # Perform RAG search
+            relevant_context = self.search_knowledge_base(user_message)
+            
+            # Generate AI response
+            ai_response = self.generate_ai_response(
+                user_message, 
+                conversation_history, 
+                relevant_context
             )
             
-            # Process streaming response
-            agent_response = ""
-            citations = []
-            
-            for event in response['completion']:
-                if 'chunk' in event:
-                    chunk = event['chunk']
-                    if 'bytes' in chunk:
-                        agent_response += chunk['bytes'].decode('utf-8')
-                elif 'trace' in event:
-                    # Extract citations and sources from trace
-                    trace = event['trace']
-                    if 'orchestrationTrace' in trace:
-                        orch_trace = trace['orchestrationTrace']
-                        if 'observation' in orch_trace:
-                            observation = orch_trace['observation']
-                            if 'knowledgeBaseLookupOutput' in observation:
-                                kb_output = observation['knowledgeBaseLookupOutput']
-                                for retrieved_ref in kb_output.get('retrievedReferences', []):
-                                    citations.append({
-                                        'source': retrieved_ref.get('location', {}).get('s3Location', {}).get('uri', ''),
-                                        'content': retrieved_ref.get('content', {}).get('text', '')[:200] + '...'
-                                    })
-            
-            # Calculate confidence score based on agent response quality
-            confidence_score = self._calculate_agent_confidence(agent_response, citations)
-            
-            # Create insight object
-            insight = {
-                'id': f'agent-insight-{int(datetime.now().timestamp())}',
-                'question': question,
-                'answer': agent_response,
-                'sources': [citation['source'] for citation in citations] or ['CI Analysis Agent', 'Knowledge Base'],
-                'citations': citations,
-                'confidenceScore': confidence_score,
-                'sessionId': session_id,
-                'agentUsed': True,
-                'createdAt': datetime.now().isoformat()
-            }
+            # Save conversation
+            self.save_conversation_turn(
+                conversation_id, 
+                user_id, 
+                user_message, 
+                ai_response
+            )
             
             return {
                 'statusCode': 200,
                 'headers': {
                     'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type'
                 },
                 'body': json.dumps({
-                    'data': insight,
-                    'success': True
+                    'response': ai_response,
+                    'conversationId': conversation_id,
+                    'timestamp': datetime.now().isoformat()
                 })
             }
             
         except Exception as e:
-            print(f"Bedrock Agent error: {str(e)}")
-            # Fallback to direct model
-            return self._invoke_direct_bedrock(question)
+            print(f"Error in AI handler: {str(e)}")
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({'error': 'Internal server error'})
+            }
     
-    def _invoke_direct_bedrock(self, question: str) -> Dict[str, Any]:
-        """Fallback to direct Bedrock model invocation"""
+    def search_knowledge_base(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search knowledge base using OpenSearch"""
         try:
-            # Get relevant context from OpenSearch
-            context_data = self._get_relevant_context(question)
+            if not hasattr(self, 'opensearch_client'):
+                return []
             
-            # Build enhanced prompt for CI analysis
-            prompt = self._build_ci_analysis_prompt(question, context_data)
+            # Enhanced search query
+            search_body = {
+                "query": {
+                    "bool": {
+                        "should": [
+                            {
+                                "multi_match": {
+                                    "query": query,
+                                    "fields": ["content^2", "title^3", "abstract^2"],
+                                    "type": "best_fields",
+                                    "fuzziness": "AUTO"
+                                }
+                            },
+                            {
+                                "match": {
+                                    "brandsmentioned": {
+                                        "query": query,
+                                        "boost": 1.5
+                                    }
+                                }
+                            }
+                        ],
+                        "minimum_should_match": 1
+                    }
+                },
+                "highlight": {
+                    "fields": {
+                        "content": {},
+                        "title": {},
+                        "abstract": {}
+                    }
+                },
+                "size": max_results,
+                "_source": [
+                    "title", "content", "abstract", "source", 
+                    "brandsmentioned", "competitiveInsights", "documentType"
+                ]
+            }
             
-            # Call Bedrock Claude model
-            response = self.bedrock.invoke_model(
+            # Search across all indices
+            indices = ["pharma-ci-*", "papers", "trials", "regulatory"]
+            
+            results = []
+            for index in indices:
+                try:
+                    response = self.opensearch_client.search(
+                        index=index,
+                        body=search_body
+                    )
+                    
+                    for hit in response['hits']['hits']:
+                        source = hit['_source']
+                        highlights = hit.get('highlight', {})
+                        
+                        result = {
+                            'id': hit['_id'],
+                            'score': hit['_score'],
+                            'source': source.get('source', ''),
+                            'documentType': source.get('documentType', ''),
+                            'title': source.get('title', ''),
+                            'content': source.get('content', '')[:500],  # Limit content
+                            'abstract': source.get('abstract', '')[:300],
+                            'brandsmentioned': source.get('brandsmentioned', []),
+                            'highlights': highlights
+                        }
+                        results.append(result)
+                        
+                except Exception as e:
+                    print(f"Error searching index {index}: {str(e)}")
+                    continue
+            
+            # Sort by relevance score and return top results
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:max_results]
+            
+        except Exception as e:
+            print(f"Error in knowledge base search: {str(e)}")
+            return []
+    
+    def generate_ai_response(
+        self, 
+        user_message: str, 
+        conversation_history: List[Dict], 
+        context: List[Dict]
+    ) -> str:
+        """Generate AI response using Bedrock Claude"""
+        try:
+            # Build context from search results
+            context_text = ""
+            if context:
+                context_text = "\\n\\nRelevant information from pharmaceutical database:\\n"
+                for item in context:
+                    context_text += f"- {item.get('title', 'N/A')}: {item.get('content', '')[:200]}...\\n"
+                    if item.get('brandsmentioned'):
+                        context_text += f"  Brands mentioned: {', '.join(item['brandsmentioned'])}\\n"
+            
+            # Build conversation history
+            history_text = ""
+            if conversation_history:
+                history_text = "\\n\\nConversation history:\\n"
+                for turn in conversation_history[-3:]:  # Last 3 turns
+                    history_text += f"User: {turn.get('user_message', '')}\\n"
+                    history_text += f"Assistant: {turn.get('ai_response', '')}\\n"
+            
+            # Create comprehensive prompt
+            system_prompt = """You are an expert pharmaceutical competitive intelligence analyst. 
+            You help users understand market dynamics, competitive landscapes, clinical trials, 
+            regulatory developments, and strategic insights in the pharmaceutical industry.
+            
+            Key capabilities:
+            - Analyze clinical trial data and competitive implications
+            - Interpret FDA regulatory information
+            - Assess market opportunities and threats
+            - Provide strategic recommendations
+            - Explain complex pharmaceutical concepts clearly
+            
+            Always provide accurate, evidence-based responses using the provided context.
+            If you don't have sufficient information, clearly state the limitations."""
+            
+            user_prompt = f"""
+            {system_prompt}
+            
+            User question: {user_message}
+            {context_text}
+            {history_text}
+            
+            Please provide a comprehensive, professional response that addresses the user's question 
+            using the available pharmaceutical intelligence data. Include specific insights, 
+            competitive implications, and actionable recommendations where appropriate.
+            """
+            
+            # Call Bedrock Claude
+            response = self.bedrock_client.invoke_model(
                 modelId='anthropic.claude-3-sonnet-20240229-v1:0',
                 body=json.dumps({
                     'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 1500,
+                    'max_tokens': 1000,
+                    'temperature': 0.7,
                     'messages': [
                         {
                             'role': 'user',
-                            'content': prompt
+                            'content': user_prompt
                         }
                     ]
                 })
             )
             
-            # Parse response
             response_body = json.loads(response['body'].read())
-            ai_answer = response_body['content'][0]['text']
+            ai_response = response_body['content'][0]['text']
             
-            # Extract sources and calculate confidence
-            sources = self._extract_sources(context_data)
-            confidence_score = self._calculate_confidence(context_data, question)
+            return ai_response
             
-            insight = {
-                'id': f'insight-{int(datetime.now().timestamp())}',
-                'question': question,
-                'answer': ai_answer,
-                'sources': sources,
-                'confidenceScore': confidence_score,
-                'agentUsed': False,
-                'createdAt': datetime.now().isoformat()
-            }
+        except Exception as e:
+            print(f"Error generating AI response: {str(e)}")
+            return "I apologize, but I'm experiencing technical difficulties. Please try again later."
+    
+    def get_conversation_history(self, conversation_id: str) -> List[Dict[str, Any]]:
+        """Retrieve conversation history from DynamoDB"""
+        try:
+            if not hasattr(self, 'conversation_table'):
+                return []
+            
+            response = self.conversation_table.query(
+                KeyConditionExpression='conversationId = :conv_id',
+                ExpressionAttributeValues={':conv_id': conversation_id},
+                ScanIndexForward=True,  # Sort by timestamp ascending
+                Limit=10  # Last 10 turns
+            )
+            
+            return response.get('Items', [])
+            
+        except Exception as e:
+            print(f"Error retrieving conversation history: {str(e)}")
+            return []
+    
+    def save_conversation_turn(
+        self, 
+        conversation_id: str, 
+        user_id: str, 
+        user_message: str, 
+        ai_response: str
+    ) -> None:
+        """Save conversation turn to DynamoDB"""
+        try:
+            if not hasattr(self, 'conversation_table'):
+                return
+            
+            timestamp = int(datetime.now().timestamp() * 1000)
+            
+            self.conversation_table.put_item(
+                Item={
+                    'conversationId': conversation_id,
+                    'timestamp': timestamp,
+                    'userId': user_id,
+                    'user_message': user_message,
+                    'ai_response': ai_response,
+                    'created_at': datetime.now().isoformat()
+                }
+            )
+            
+        except Exception as e:
+            print(f"Error saving conversation: {str(e)}")
+    
+    def analyze_competitive_landscape(self, query: str) -> Dict[str, Any]:
+        """Specialized competitive landscape analysis"""
+        try:
+            # Search for competitive intelligence
+            competitive_data = self.search_knowledge_base(
+                f"competitive analysis {query}", 
+                max_results=10
+            )
+            
+            # Extract brands and competitive insights
+            brands_mentioned = set()
+            key_insights = []
+            
+            for item in competitive_data:
+                if item.get('brandsmentioned'):
+                    brands_mentioned.update(item['brandsmentioned'])
+                
+                if item.get('competitiveInsights'):
+                    key_insights.append(item['competitiveInsights'])
             
             return {
-                'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                'body': json.dumps({
-                    'data': insight,
-                    'success': True
-                })
+                'brands_in_landscape': list(brands_mentioned),
+                'key_insights': key_insights,
+                'data_sources': len(competitive_data),
+                'analysis_timestamp': datetime.now().isoformat()
             }
             
         except Exception as e:
-            return self._error_response(f'Direct Bedrock invocation failed: {str(e)}')
-    
-    def _build_ci_analysis_prompt(self, question: str, context_data: Dict[str, Any]) -> str:
-        """Build specialized CI analysis prompt"""
-        prompt = f"""You are a senior pharmaceutical competitive intelligence analyst with 15+ years of experience. 
-
-Analyze the following question using the provided competitive intelligence data:
-
-QUESTION: {question}
-
-COMPETITIVE INTELLIGENCE DATA:
-"""
-        
-        # Add structured context
-        if 'brands' in context_data:
-            prompt += "\n=== BRAND INTELLIGENCE ===\n"
-            for hit in context_data['brands'].get('hits', {}).get('hits', [])[:3]:
-                brand = hit['_source']
-                prompt += f"""
-Brand: {brand.get('name', 'Unknown')}
-Molecule: {brand.get('molecule', 'Unknown')}
-Manufacturer: {brand.get('manufacturer', 'Unknown')}
-Market Position: Risk Score {brand.get('riskScore', 'Unknown')}/100
-Key Indications: {', '.join(brand.get('indications', [])[:3])}
-Main Competitors: {', '.join(brand.get('competitors', [])[:3])}
-"""
-        
-        if 'trials' in context_data:
-            prompt += "\n=== CLINICAL TRIALS INTELLIGENCE ===\n"
-            for hit in context_data['trials'].get('hits', {}).get('hits', [])[:5]:
-                trial = hit['_source']
-                prompt += f"""
-Trial: {trial.get('title', 'Unknown')[:100]}...
-Phase: {trial.get('phase', 'Unknown')}
-Status: {trial.get('status', 'Unknown')}
-Sponsor: {trial.get('sponsor', 'Unknown')}
-Indication: {trial.get('indication', 'Unknown')}
-"""
-        
-        if 'alerts' in context_data:
-            prompt += "\n=== RECENT COMPETITIVE ALERTS ===\n"
-            for hit in context_data['alerts'].get('hits', {}).get('hits', [])[:3]:
-                alert = hit['_source']
-                prompt += f"""
-Alert: {alert.get('title', 'Unknown')}
-Severity: {alert.get('severity', 'Unknown')}
-Brands Impacted: {', '.join(alert.get('brandImpacted', []))}
-Impact: {alert.get('whyItMatters', 'Unknown')[:150]}...
-"""
-        
-        prompt += """
-
-ANALYSIS FRAMEWORK:
-1. COMPETITIVE POSITIONING: Assess market position and competitive dynamics
-2. STRATEGIC IMPLICATIONS: Identify key strategic implications and opportunities
-3. RISK ASSESSMENT: Evaluate competitive threats and market risks
-4. QUANTITATIVE INSIGHTS: Provide data-driven metrics and projections where possible
-5. ACTIONABLE RECOMMENDATIONS: Suggest specific next steps for CI team
-
-RESPONSE REQUIREMENTS:
-- Provide executive-level strategic insights
-- Include specific data points and metrics
-- Cite confidence levels for key assertions
-- Focus on actionable intelligence
-- Highlight urgent competitive threats
-- Suggest monitoring priorities
-
-COMPETITIVE INTELLIGENCE ANALYSIS:"""
-        
-        return prompt
-    
-    def _calculate_agent_confidence(self, response: str, citations: List[Dict]) -> int:
-        """Calculate confidence score for agent response"""
-        base_confidence = 75  # Higher base for agent responses
-        
-        # Increase confidence based on citations
-        if citations:
-            base_confidence += min(len(citations) * 5, 20)
-        
-        # Adjust based on response quality indicators
-        if any(indicator in response.lower() for indicator in ['data shows', 'analysis indicates', 'evidence suggests']):
-            base_confidence += 5
-        
-        if any(indicator in response.lower() for indicator in ['uncertain', 'unclear', 'limited data']):
-            base_confidence -= 10
-        
-        return min(max(base_confidence, 60), 95)
-    
-    def _get_relevant_context(self, question: str) -> Dict[str, Any]:
-        """Get relevant context data (same as original implementation)"""
-        try:
-            key_terms = self._extract_key_terms(question)
-            context = {}
-            
-            # Search for relevant brands
-            if any(term in question.lower() for term in ['brand', 'drug', 'compare']):
-                brand_query = {
-                    'query': {
-                        'multi_match': {
-                            'query': ' '.join(key_terms),
-                            'fields': ['name', 'molecule', 'indications']
-                        }
-                    },
-                    'size': 5
-                }
-                context['brands'] = self.opensearch.search('brands', brand_query)
-            
-            # Search for clinical trials
-            if any(term in question.lower() for term in ['trial', 'phase', 'clinical']):
-                trial_query = {
-                    'query': {
-                        'multi_match': {
-                            'query': ' '.join(key_terms),
-                            'fields': ['title', 'indication', 'sponsor']
-                        }
-                    },
-                    'size': 10
-                }
-                context['trials'] = self.opensearch.search('trials', trial_query)
-            
-            # Search for recent alerts
-            if any(term in question.lower() for term in ['alert', 'news', 'recent', 'update']):
-                alert_query = {
-                    'query': {
-                        'bool': {
-                            'must': [
-                                {
-                                    'multi_match': {
-                                        'query': ' '.join(key_terms),
-                                        'fields': ['title', 'description', 'brandImpacted']
-                                    }
-                                }
-                            ],
-                            'filter': [
-                                {
-                                    'range': {
-                                        'createdAt': {
-                                            'gte': 'now-30d'
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    'size': 5
-                }
-                context['alerts'] = self.opensearch.search('alerts', alert_query)
-            
-            return context
-            
-        except Exception as e:
+            print(f"Error in competitive analysis: {str(e)}")
             return {}
     
-    def _extract_key_terms(self, question: str) -> list:
-        """Extract key pharmaceutical terms from question"""
-        pharma_terms = [
-            'keytruda', 'opdivo', 'tecentriq', 'imfinzi',
-            'pembrolizumab', 'nivolumab', 'atezolizumab',
-            'melanoma', 'lung cancer', 'oncology', 'immunotherapy',
-            'phase i', 'phase ii', 'phase iii', 'fda', 'approval'
-        ]
-        
-        question_lower = question.lower()
-        found_terms = [term for term in pharma_terms if term in question_lower]
-        
-        words = question_lower.split()
-        key_words = [word for word in words if len(word) > 3 and word not in ['what', 'when', 'where', 'which', 'compare']]
-        
-        return found_terms + key_words[:5]
-    
-    def _extract_sources(self, context_data: Dict[str, Any]) -> list:
-        """Extract source citations from context data"""
-        sources = []
-        
-        if 'brands' in context_data and context_data['brands'].get('hits', {}).get('hits'):
-            sources.append('Brand Intelligence Database')
-        
-        if 'trials' in context_data and context_data['trials'].get('hits', {}).get('hits'):
-            sources.append('ClinicalTrials.gov')
-        
-        if 'alerts' in context_data and context_data['alerts'].get('hits', {}).get('hits'):
-            sources.extend(['FDA Database', 'Patent Database', 'News Sources'])
-        
-        if not sources:
-            sources = ['Pharmaceutical Intelligence Database']
-        
-        return list(set(sources))
-    
-    def _calculate_confidence(self, context_data: Dict[str, Any], question: str) -> int:
-        """Calculate confidence score based on available data"""
-        base_confidence = 60
-        
-        if 'brands' in context_data:
-            brand_hits = len(context_data['brands'].get('hits', {}).get('hits', []))
-            base_confidence += min(brand_hits * 5, 20)
-        
-        if 'trials' in context_data:
-            trial_hits = len(context_data['trials'].get('hits', {}).get('hits', []))
-            base_confidence += min(trial_hits * 2, 15)
-        
-        if 'alerts' in context_data:
-            alert_hits = len(context_data['alerts'].get('hits', {}).get('hits', []))
-            base_confidence += min(alert_hits * 3, 15)
-        
-        return min(max(base_confidence, 50), 95)
-    
-    def _error_response(self, message: str) -> Dict[str, Any]:
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({
-                'success': False,
-                'message': message
-            })
-        }
+    def get_clinical_trial_insights(self, indication: str) -> Dict[str, Any]:
+        """Get clinical trial insights for specific indication"""
+        try:
+            # Search clinical trials
+            trial_data = self.search_knowledge_base(
+                f"clinical trial {indication}",
+                max_results=15
+            )
+            
+            # Filter for clinical trial documents
+            trials = [item for item in trial_data if item.get('documentType') == 'clinical_trial']
+            
+            # Analyze trial phases, sponsors, etc.
+            phases = {}
+            sponsors = {}
+            
+            for trial in trials:
+                # Extract phase information (would need to parse from content)
+                # Extract sponsor information
+                pass
+            
+            return {
+                'total_trials': len(trials),
+                'phase_distribution': phases,
+                'top_sponsors': sponsors,
+                'indication': indication
+            }
+            
+        except Exception as e:
+            print(f"Error getting trial insights: {str(e)}")
+            return {}
+
+def lambda_handler(event, context):
+    """Lambda entry point"""
+    handler = EnhancedAIHandler()
+    return handler.lambda_handler(event, context)
