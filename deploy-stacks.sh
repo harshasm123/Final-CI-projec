@@ -2,9 +2,14 @@
 
 echo "Cleaning up and deploying AI and Frontend stacks..."
 
+# Clean up existing buckets that might conflict
+echo "Cleaning up existing S3 buckets..."
+aws s3 rb s3://ci-knowledge-base-dev-992382808739 --force 2>/dev/null || echo "Knowledge base bucket doesn't exist or already deleted"
+aws s3 rb s3://ci-frontend-dev-992382808739 --force 2>/dev/null || echo "Frontend bucket doesn't exist or already deleted"
+
 # Clean up failed CDK stack
 echo "Cleaning up failed CDK stack..."
-aws cloudformation delete-stack --stack-name pharma-ci-platform-dev --region us-east-1
+aws cloudformation delete-stack --stack-name pharma-ci-platform-dev --region us-east-1 2>/dev/null
 echo "Waiting for cleanup..."
 aws cloudformation wait stack-delete-complete --stack-name pharma-ci-platform-dev --region us-east-1 2>/dev/null || echo "Stack already deleted or doesn't exist"
 
