@@ -95,8 +95,7 @@ fi
 # Get stack outputs
 log_info "Retrieving stack outputs..."
 AI_API_ENDPOINT=$(aws cloudformation describe-stacks --stack-name pharma-ci-rag-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`AIAPIEndpoint`].OutputValue' --output text --region $REGION 2>/dev/null || echo "https://demo-api.pharma-ci.com")
-FRONTEND_BUCKET=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucket`].OutputValue' --output text --region $REGION 2>/dev/null || echo "demo-frontend-bucket")
-CLOUDFRONT_URL=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' --output text --region $REGION 2>/dev/null || echo "https://demo.cloudfront.net")
+AMPLIFY_URL=$(aws cloudformation describe-stacks --stack-name pharma-ci-frontend-$ENVIRONMENT --query 'Stacks[0].Outputs[?OutputKey==`AmplifyURL`].OutputValue' --output text --region $REGION 2>/dev/null || echo "https://demo.amplifyapp.com")
 
 # Deploy frontend application
 echo ""
@@ -161,16 +160,16 @@ echo "Production-Grade Deployment Complete!"
 echo ""
 echo "Infrastructure:"
 echo "  AI API Endpoint: $AI_API_ENDPOINT"
-echo "  Frontend Bucket: $FRONTEND_BUCKET"
-echo "  CloudFront URL: $CLOUDFRONT_URL"
+echo "  Amplify Frontend: $AMPLIFY_URL"
 echo ""
 echo "Stacks Deployed:"
 echo "  1. pharma-ci-rag-${ENVIRONMENT} - AI/Bedrock stack"
-echo "  2. pharma-ci-frontend-${ENVIRONMENT} - Frontend stack"
+echo "  2. pharma-ci-frontend-${ENVIRONMENT} - Amplify frontend stack"
 echo "  3. pharma-ci-platform-${ENVIRONMENT} - Core infrastructure (CDK)"
 echo ""
 echo "Next Steps:"
 echo "  1. Configure API keys in Secrets Manager"
 echo "  2. Test AI endpoint: curl -X POST $AI_API_ENDPOINT/ai -d '{\"query\":\"test\"}'"
-echo "  3. Access frontend: $CLOUDFRONT_URL"
+echo "  3. Access frontend: $AMPLIFY_URL"
+echo "  4. Connect GitHub repository to Amplify for auto-deployment"
 echo ""

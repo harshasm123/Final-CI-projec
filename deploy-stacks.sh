@@ -23,20 +23,18 @@ echo "🏭 Production-Grade Pharmaceutical CI Platform Deployment"
 echo "📊 Enterprise AWS Serverless Architecture"
 echo ""
 
-# Configuration with validation
+# Configuration
 ENVIRONMENT=${1:-prod}
 REGION=${2:-us-east-1}
-VPC_ID=${3:-}
-SUBNET_IDS=${4:-}
-GITHUB_TOKEN=${5:-}
-DOMAIN_NAME=${6:-}
-CERT_ARN=${7:-}
+GITHUB_TOKEN=${3:-}
 
-# Validate required parameters for production
-if [[ "$ENVIRONMENT" == "prod" ]]; then
-    if [[ -z "$VPC_ID" || -z "$SUBNET_IDS" || -z "$GITHUB_TOKEN" ]]; then
-        log_error "Production deployment requires VPC_ID, SUBNET_IDS, and GITHUB_TOKEN"
-        echo "Usage: $0 prod us-east-1 vpc-12345 'subnet-123,subnet-456' ghp_token [domain.com] [cert-arn]"
+# Prompt for GitHub token if not provided
+if [[ -z "$GITHUB_TOKEN" ]]; then
+    echo -n "Enter GitHub Personal Access Token: "
+    read -s GITHUB_TOKEN
+    echo ""
+    if [[ -z "$GITHUB_TOKEN" ]]; then
+        log_error "GitHub token is required for Amplify deployment"
         exit 1
     fi
 fi
@@ -48,47 +46,60 @@ log_info "Configuration:"
 echo "  Environment: $ENVIRONMENT"
 echo "  Region: $REGION"
 echo "  Account: $ACCOUNT_ID"
-echo "  VPC: ${VPC_ID:-'Default'}"
-echo "  Domain: ${DOMAIN_NAME:-'Amplify Default'}"
 echo ""
 
-# Pre-deployment validation
-log_info "Running pre-deployment validation..."
+# Deploy VPC first
+log_info "Deploying VPC infrastructure..."
+VPC_STACK_NAME="pharma-ci-vpc-${ENVIRONMENT}-${TIMESTAMP}"
 
-# Check AWS CLI and permissions
-if ! aws sts get-caller-identity &>/dev/null; then
-    log_error "AWS CLI not configured or insufficient permissions"
+aws cloudformation deploy \
+    --template-file vpc-stack.yaml \
+    --stack-name $VPC_STACK_NAME \
+    --parameter-overrides Environment=$ENVIRONMENT \
+    --region $REGION \
+    --tags Environment=$ENVIRONMENT Project=PharmaCI
+
+if [[ $? -eq 0 ]]; then
+    log_success "VPC stack deployed successfully"
+else
+    log_error "VPC stack deployment failed"
     exit 1
 fi
 
-# Deploy infrastructure stacks
-log_info "Deploying production infrastructure..."
+# Get VPC outputs
+VPC_ID=$(aws cloudformation describe-stacks \
+    --stack-name $VPC_STACK_NAME \
+    --query 'Stacks[0].Outputs[?OutputKey==`VPC`].OutputValue' \
+    --output text --region $REGION)
 
-# Deploy AI Stack with production parameters
-log_info "Deploying AI/RAG stack with enterprise security..."
+SUBNET_IDS=$(aws cloudformation describe-stacks \
+    --stack-name $VPC_STACK_NAME \
+    --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnets`].OutputValue' \
+    --output text --region $REGION)
+
+log_info "VPC ID: $VPC_ID"
+log_info "Private Subnets: $SUBNET_IDS"
+
+# Deploy AI Stack with VPC
+log_info "Deploying AI/RAG stack with VPC security..."
 AI_STACK_NAME="pharma-ci-rag-${ENVIRONMENT}-${TIMESTAMP}"
 
-if [[ -n "$VPC_ID" ]]; then
-    aws cloudformation deploy \
-        --template-file ai-stack.yaml \
-        --stack-name $AI_STACK_NAME \
-        --parameter-overrides \
-            Environment=$ENVIRONMENT \
-            VpcId=$VPC_ID \
-            PrivateSubnetIds=$SUBNET_IDS \
-        --capabilities CAPABILITY_NAMED_IAM \
-        --region $REGION \
-        --tags \
-            Environment=$ENVIRONMENT \
-            Project=PharmaCI
+aws cloudformation deploy \
+    --template-file ai-stack.yaml \
+    --stack-name $AI_STACK_NAME \
+    --parameter-overrides \
+        Environment=$ENVIRONMENT \
+        VpcId=$VPC_ID \
+        PrivateSubnetIds=$SUBNET_IDS \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region $REGION \
+    --tags Environment=$ENVIRONMENT Project=PharmaCI
+
+if [[ $? -eq 0 ]]; then
+    log_success "AI stack deployed successfully"
 else
-    log_warning "Deploying without VPC (not recommended for production)"
-    aws cloudformation deploy \
-        --template-file ai-stack.yaml \
-        --stack-name $AI_STACK_NAME \
-        --parameter-overrides Environment=$ENVIRONMENT \
-        --capabilities CAPABILITY_NAMED_IAM \
-        --region $REGION
+    log_error "AI stack deployment failed"
+    exit 1
 fi
 
 # Get AI API endpoint
@@ -101,20 +112,22 @@ AI_ENDPOINT=$(aws cloudformation describe-stacks \
 log_info "Deploying frontend with Amplify..."
 FRONTEND_STACK_NAME="pharma-ci-frontend-${ENVIRONMENT}-${TIMESTAMP}"
 
-FRONTEND_PARAMS="Environment=$ENVIRONMENT"
-if [[ -n "$GITHUB_TOKEN" ]]; then
-    FRONTEND_PARAMS="$FRONTEND_PARAMS GitHubToken=$GITHUB_TOKEN"
-fi
-if [[ -n "$DOMAIN_NAME" ]]; then
-    FRONTEND_PARAMS="$FRONTEND_PARAMS DomainName=$DOMAIN_NAME"
-fi
-
 aws cloudformation deploy \
     --template-file frontend-stack.yaml \
     --stack-name $FRONTEND_STACK_NAME \
-    --parameter-overrides $FRONTEND_PARAMS \
+    --parameter-overrides \
+        Environment=$ENVIRONMENT \
+        GitHubToken=$GITHUB_TOKEN \
     --capabilities CAPABILITY_NAMED_IAM \
-    --region $REGION
+    --region $REGION \
+    --tags Environment=$ENVIRONMENT Project=PharmaCI
+
+if [[ $? -eq 0 ]]; then
+    log_success "Frontend stack deployed successfully"
+else
+    log_error "Frontend stack deployment failed"
+    exit 1
+fi
 
 # Get deployment outputs
 AMPLIFY_URL=$(aws cloudformation describe-stacks \
@@ -128,6 +141,7 @@ echo "🎉 Production-Grade Deployment Complete!"
 echo ""
 echo "📊 Infrastructure Summary:"
 echo "  Environment: $ENVIRONMENT"
+echo "  VPC Stack: $VPC_STACK_NAME"
 echo "  AI Stack: $AI_STACK_NAME"
 echo "  Frontend Stack: $FRONTEND_STACK_NAME"
 echo ""
@@ -137,12 +151,15 @@ echo "  🌐 Frontend: $AMPLIFY_URL"
 echo ""
 echo "🧪 Testing:"
 echo "  API Test: curl -X POST '$AI_ENDPOINT/ai' -H 'Content-Type: application/json' -d '{\"query\":\"What are the latest FDA approvals?\"}'"
+echo "  Frontend: Open $AMPLIFY_URL in browser"
 echo ""
 echo "🔐 Security Features Enabled:"
-echo "  ✅ VPC isolation"
-echo "  ✅ KMS encryption"
+echo "  ✅ VPC isolation (Lambda functions)"
+echo "  ✅ KMS encryption (S3, logs)"
 echo "  ✅ IAM least privilege"
 echo "  ✅ API Gateway throttling"
 echo "  ✅ Request validation"
+echo "  ✅ Private subnets with NAT Gateway"
 echo ""
-log_success "Deployment completed successfully"
+log_success "Deployment completed successfully at $(date)"
+echo "Stack Names: $VPC_STACK_NAME, $AI_STACK_NAME, $FRONTEND_STACK_NAME" > deployment-info.txt
