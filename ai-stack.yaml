@@ -341,12 +341,22 @@ Resources:
     Properties:
       RestApiId: !Ref AIAPI
       StageName: !Ref Environment
-      StageDescription:
-        ThrottlingBurstLimit: 1000
-        ThrottlingRateLimit: 500
-        LoggingLevel: INFO
-        DataTraceEnabled: true
-        MetricsEnabled: true
+
+  APIStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref AIAPI
+      DeploymentId: !Ref APIDeployment
+      StageName: !Ref Environment
+      ThrottleSettings:
+        BurstLimit: 1000
+        RateLimit: 500
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          LoggingLevel: INFO
+          DataTraceEnabled: true
+          MetricsEnabled: true
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
