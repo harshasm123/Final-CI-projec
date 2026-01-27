@@ -8,73 +8,56 @@ Parameters:
     Description: Environment name
 
 Resources:
-  # Frontend S3 Bucket
-  FrontendBucket:
-    Type: AWS::S3::Bucket
+  # Amplify App for Frontend
+  AmplifyApp:
+    Type: AWS::Amplify::App
     Properties:
-      BucketName: !Sub 'ci-frontend-${Environment}-${AWS::AccountId}-${AWS::StackId}'
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: index.html
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
+      Name: !Sub 'pharma-ci-frontend-${Environment}'
+      Repository: 'https://github.com/your-repo/pharma-ci-frontend'
+      Platform: WEB
+      BuildSpec: |
+        version: 1
+        frontend:
+          phases:
+            preBuild:
+              commands:
+                - npm install
+            build:
+              commands:
+                - npm run build
+          artifacts:
+            baseDirectory: build
+            files:
+              - '**/*'
+          cache:
+            paths:
+              - node_modules/**/*
+      EnvironmentVariables:
+        - Name: REACT_APP_API_ENDPOINT
+          Value: !Sub '${AIAPI}.execute-api.${AWS::Region}.amazonaws.com/prod'
+        - Name: REACT_APP_REGION
+          Value: !Ref AWS::Region
+        - Name: REACT_APP_ENVIRONMENT
+          Value: !Ref Environment
 
-  # Bucket Policy for Public Read
-  FrontendBucketPolicy:
-    Type: AWS::S3::BucketPolicy
+  # Amplify Branch
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
     Properties:
-      Bucket: !Ref FrontendBucket
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: s3:GetObject
-            Resource: !Sub '${FrontendBucket}/*'
-
-  # CloudFront Distribution
-  CloudFrontDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Origins:
-          - Id: S3Origin
-            DomainName: !Sub '${FrontendBucket}.s3-website-${AWS::Region}.amazonaws.com'
-            CustomOriginConfig:
-              HTTPPort: 80
-              OriginProtocolPolicy: http-only
-        DefaultCacheBehavior:
-          TargetOriginId: S3Origin
-          ViewerProtocolPolicy: redirect-to-https
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # Managed-CachingOptimized
-        DefaultRootObject: index.html
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-        Enabled: true
-        HttpVersion: http2
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: main
+      EnableAutoBuild: true
+      Stage: PRODUCTION
 
 Outputs:
-  FrontendBucket:
-    Description: Frontend S3 Bucket
-    Value: !Ref FrontendBucket
+  AmplifyAppId:
+    Description: Amplify App ID
+    Value: !GetAtt AmplifyApp.AppId
     Export:
-      Name: !Sub '${AWS::StackName}-FrontendBucket'
+      Name: !Sub '${AWS::StackName}-AmplifyAppId'
 
-  CloudFrontURL:
-    Description: CloudFront Distribution URL
-    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+  AmplifyURL:
+    Description: Amplify App URL
+    Value: !Sub 'https://${AmplifyBranch.BranchName}.${AmplifyApp.DefaultDomain}'
     Export:
-      Name: !Sub '${AWS::StackName}-CloudFrontURL'
-
-  WebsiteURL:
-    Description: S3 Website URL
-    Value: !GetAtt FrontendBucket.WebsiteURL
-    Export:
-      Name: !Sub '${AWS::StackName}-WebsiteURL'
+      Name: !Sub '${AWS::StackName}-AmplifyURL'

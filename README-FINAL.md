@@ -1,4 +1,4 @@
-# Pharmaceutical CI Platform
+ # Pharmaceutical CI Platform
 
 Enterprise-grade Competitive Intelligence platform for pharmaceutical companies using AWS serverless architecture.
 
