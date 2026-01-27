@@ -48,28 +48,9 @@ echo "  Region: $REGION"
 echo "  Account: $ACCOUNT_ID"
 echo ""
 
-# Check if VPC stack already exists
-VPC_STACK_NAME="pharma-ci-vpc-${ENVIRONMENT}"
-if aws cloudformation describe-stacks --stack-name $VPC_STACK_NAME --region $REGION >/dev/null 2>&1; then
-    log_info "VPC stack already exists, skipping deployment"
-else
-    log_info "Deploying VPC infrastructure..."
-    VPC_STACK_NAME="pharma-ci-vpc-${ENVIRONMENT}-${TIMESTAMP}"
-    
-    aws cloudformation deploy \
-        --template-file vpc-stack.yaml \
-        --stack-name $VPC_STACK_NAME \
-        --parameter-overrides Environment=$ENVIRONMENT \
-        --region $REGION \
-        --tags Environment=$ENVIRONMENT Project=PharmaCI
-    
-    if [[ $? -eq 0 ]]; then
-        log_success "VPC stack deployed successfully"
-    else
-        log_error "VPC stack deployment failed"
-        exit 1
-    fi
-fi
+# Skip VPC deployment - use existing VPC
+log_info "Using existing VPC infrastructure..."
+VPC_STACK_NAME="pharma-ci-vpc-prod-1769535728"
 
 # Get VPC outputs
 VPC_ID=$(aws cloudformation describe-stacks \
