@@ -56,7 +56,7 @@ Resources:
   AIFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'pharma-ci-ai-${Environment}'
+      FunctionName: !Sub 'pharma-ci-ai-${Environment}-${AWS::StackName}'
       Runtime: python3.11
       Handler: index.lambda_handler
       Role: !GetAtt AILambdaRole.Arn
