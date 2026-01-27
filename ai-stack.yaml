@@ -291,37 +291,11 @@ Resources:
       RestApiId: !Ref AIAPI
       ResourceId: !Ref AIResource
       HttpMethod: POST
-      AuthorizationType: AWS_IAM
-      RequestValidatorId: !Ref RequestValidator
-      RequestModels:
-        application/json: !Ref RequestModel
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AIFunction.Arn}/invocations'
-
-  # Request validation
-  RequestValidator:
-    Type: AWS::ApiGateway::RequestValidator
-    Properties:
-      RestApiId: !Ref AIAPI
-      ValidateRequestBody: true
-      ValidateRequestParameters: true
-
-  RequestModel:
-    Type: AWS::ApiGateway::Model
-    Properties:
-      RestApiId: !Ref AIAPI
-      ContentType: application/json
-      Schema:
-        type: object
-        required:
-          - query
-        properties:
-          query:
-            type: string
-            minLength: 1
-            maxLength: 4000
 
   APIDeployment:
     Type: AWS::ApiGateway::Deployment
