@@ -50,7 +50,7 @@ echo ""
 
 # Skip VPC deployment - use existing VPC
 log_info "Using existing VPC infrastructure..."
-VPC_STACK_NAME="pharma-ci-vpc-prod-1769535728"
+VPC_STACK_NAME="pharma-ci-vpc-${ENVIRONMENT}"
 
 # Get VPC outputs
 VPC_ID=$(aws cloudformation describe-stacks \
@@ -68,7 +68,7 @@ log_info "Private Subnets: $SUBNET_IDS"
 
 # Deploy AI Stack with VPC
 log_info "Deploying AI/RAG stack with VPC security..."
-AI_STACK_NAME="pharma-ci-rag-${ENVIRONMENT}-${TIMESTAMP}"
+AI_STACK_NAME="pharma-ci-rag-${ENVIRONMENT}"
 
 aws cloudformation deploy \
     --template-file ai-stack-minimal.yaml \
@@ -96,7 +96,7 @@ AI_ENDPOINT=$(aws cloudformation describe-stacks \
 
 # Deploy Frontend Stack
 log_info "Deploying frontend with Amplify..."
-FRONTEND_STACK_NAME="pharma-ci-frontend-${ENVIRONMENT}-${TIMESTAMP}"
+FRONTEND_STACK_NAME="pharma-ci-frontend-${ENVIRONMENT}"
 
 aws cloudformation deploy \
     --template-file frontend-stack.yaml \

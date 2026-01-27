@@ -205,10 +205,7 @@ Outputs:
 
   AmplifyURL:
     Description: Amplify App URL
-    Value: !If 
-      - HasCustomDomain
-      - !Sub 'https://${DomainName}'
-      - !Sub 'https://${AmplifyBranch.BranchName}.${AmplifyApp.DefaultDomain}'
+    Value: !Sub 'https://main.${AmplifyApp.DefaultDomain}'
     Export:
       Name: !Sub '${AWS::StackName}-AmplifyURL'
 
