@@ -113,15 +113,15 @@ Resources:
     Type: AWS::Amplify::Branch
     Properties:
       AppId: !GetAtt AmplifyApp.AppId
-      BranchName: !If [!Equals [!Ref Environment, 'prod'], 'main', !Ref Environment]
+      BranchName: main
       EnableAutoBuild: true
-      EnablePullRequestPreview: !If [!Equals [!Ref Environment, 'prod'], false, true]
-      Stage: !If [!Equals [!Ref Environment, 'prod'], 'PRODUCTION', 'DEVELOPMENT']
+      EnablePullRequestPreview: false
+      Stage: PRODUCTION
       EnvironmentVariables:
         - Name: REACT_APP_STAGE
           Value: !Ref Environment
       Framework: React
-      EnablePerformanceMode: !If [!Equals [!Ref Environment, 'prod'], true, false]
+      EnablePerformanceMode: true
 
   # Custom Domain (if provided)
   AmplifyDomain:
@@ -134,9 +134,7 @@ Resources:
         CertificateType: !If [HasCertificate, 'CUSTOM', 'AMPLIFY_MANAGED']
         CertificateArn: !If [HasCertificate, !Ref CertificateArn, !Ref 'AWS::NoValue']
       SubDomainSettings:
-        - Prefix: !If [!Equals [!Ref Environment, 'prod'], 'www', !Ref Environment]
-          BranchName: !GetAtt AmplifyBranch.BranchName
-        - Prefix: !If [!Equals [!Ref Environment, 'prod'], '', !Sub '${Environment}-api']
+        - Prefix: www
           BranchName: !GetAtt AmplifyBranch.BranchName
 
   # CloudWatch Dashboard
