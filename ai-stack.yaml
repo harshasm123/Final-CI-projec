@@ -1,30 +1,98 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Pharmaceutical CI Platform - AI/RAG Stack'
+Description: 'Production-Grade Pharmaceutical CI Platform - AI/RAG Stack'
 
 Parameters:
   Environment:
     Type: String
-    Default: dev
+    Default: prod
+    AllowedValues: [dev, staging, prod]
     Description: Environment name
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Lambda functions
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets for Lambda functions
 
 Resources:
-  # Knowledge Base S3 Bucket
+  # KMS Key for encryption
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for Pharmaceutical CI Platform
+      KeyPolicy:
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  KMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/pharma-ci-${Environment}'
+      TargetKeyId: !Ref KMSKey
+
+  # Knowledge Base S3 Bucket with versioning and lifecycle
   KnowledgeBaseBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 'ci-knowledge-base-${Environment}-${AWS::AccountId}-${AWS::StackId}'
+      BucketName: !Sub 'pharma-ci-kb-${Environment}-${AWS::AccountId}'
       VersioningConfiguration:
         Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref KMSKey
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      NotificationConfiguration:
+        CloudWatchConfigurations:
+          - Event: s3:ObjectCreated:*
+            CloudWatchConfiguration:
+              LogGroupName: !Ref S3LogGroup
 
-  # AI Lambda Function Role
+  # CloudWatch Log Group for S3
+  S3LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/s3/pharma-ci-${Environment}'
+      RetentionInDays: 30
+      KmsKeyId: !GetAtt KMSKey.Arn
+
+  # Security Group for Lambda
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Pharmaceutical CI Lambda functions
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP outbound
+
+  # AI Lambda Function Role with least privilege
   AILambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub 'PharmaCI-AI-Role-${Environment}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -33,7 +101,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
       Policies:
         - PolicyName: BedrockAccess
           PolicyDocument:
@@ -45,13 +113,25 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                 Resource:
                   - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0'
-                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
               - Effect: Allow
                 Action:
                   - s3:GetObject
+                  - s3:GetObjectVersion
                 Resource: !Sub '${KnowledgeBaseBucket}/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !GetAtt KMSKey.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
 
-  # AI Lambda Function
+  # AI Lambda Function with production settings
   AIFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -59,53 +139,160 @@ Resources:
       Runtime: python3.11
       Handler: index.lambda_handler
       Role: !GetAtt AILambdaRole.Arn
-      Timeout: 30
+      Timeout: 900
+      MemorySize: 3008
+      ReservedConcurrencyLimit: 100
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds: !Ref PrivateSubnetIds
       Environment:
         Variables:
           KNOWLEDGE_BUCKET: !Ref KnowledgeBaseBucket
+          ENVIRONMENT: !Ref Environment
+          KMS_KEY_ID: !Ref KMSKey
+      DeadLetterQueue:
+        TargetArn: !GetAtt DLQueue.Arn
       Code:
         ZipFile: |
           import json
           import boto3
           import os
+          from botocore.exceptions import ClientError
+          import logging
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
           
           bedrock = boto3.client('bedrock-runtime')
           
           def lambda_handler(event, context):
               try:
-                  query = json.loads(event['body']).get('query', '')
+                  # Input validation
+                  if 'body' not in event:
+                      raise ValueError('Missing request body')
                   
-                  body = {
+                  body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+                  query = body.get('query', '').strip()
+                  
+                  if not query or len(query) > 4000:
+                      raise ValueError('Invalid query length')
+                  
+                  # Enhanced prompt for pharmaceutical CI
+                  system_prompt = """You are a pharmaceutical competitive intelligence analyst with expertise in:
+                  - Drug development and clinical trials
+                  - Regulatory affairs (FDA, EMA)
+                  - Market analysis and competitive landscape
+                  - Patent analysis and IP strategy
+                  - Healthcare economics and market access
+                  
+                  Provide accurate, data-driven insights with proper citations when possible."""
+                  
+                  request_body = {
                       "anthropic_version": "bedrock-2023-05-31",
-                      "max_tokens": 1000,
-                      "messages": [{"role": "user", "content": f"As a pharmaceutical competitive intelligence analyst, analyze: {query}"}]
+                      "max_tokens": 2000,
+                      "system": system_prompt,
+                      "messages": [
+                          {
+                              "role": "user",
+                              "content": query
+                          }
+                      ],
+                      "temperature": 0.1,
+                      "top_p": 0.9
                   }
                   
                   response = bedrock.invoke_model(
                       modelId='anthropic.claude-3-sonnet-20240229-v1:0',
-                      body=json.dumps(body)
+                      body=json.dumps(request_body)
                   )
                   
                   response_body = json.loads(response['body'].read())
                   
                   return {
                       'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                          'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+                      },
+                      'body': json.dumps({
+                          'response': response_body['content'][0]['text'],
+                          'confidence': 0.95,
+                          'model': 'claude-3-sonnet',
+                          'timestamp': context.aws_request_id
+                      })
+                  }
+                  
+              except ValueError as e:
+                  logger.error(f'Validation error: {str(e)}')
+                  return {
+                      'statusCode': 400,
                       'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                      'body': json.dumps({'response': response_body['content'][0]['text'], 'confidence': 0.95})
+                      'body': json.dumps({'error': f'Invalid input: {str(e)}'})
+                  }
+              except ClientError as e:
+                  logger.error(f'AWS service error: {str(e)}')
+                  return {
+                      'statusCode': 503,
+                      'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                      'body': json.dumps({'error': 'Service temporarily unavailable'})
                   }
               except Exception as e:
+                  logger.error(f'Unexpected error: {str(e)}')
                   return {
                       'statusCode': 500,
                       'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                      'body': json.dumps({'error': str(e)})
+                      'body': json.dumps({'error': 'Internal server error'})
                   }
 
-  # API Gateway
+  # Dead Letter Queue
+  DLQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'pharma-ci-dlq-${Environment}'
+      KmsMasterKeyId: !Ref KMSKey
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # CloudWatch Alarms
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'PharmaCI-Lambda-Errors-${Environment}'
+      AlarmDescription: 'Lambda function errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AIFunction
+
+  # API Gateway with WAF
   AIAPI:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: !Sub 'pharma-ci-ai-${Environment}'
-      Description: 'AI API for Pharmaceutical CI Platform'
+      Name: !Sub 'pharma-ci-api-${Environment}'
+      Description: 'Production AI API for Pharmaceutical CI Platform'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Policy:
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: execute-api:Invoke
+            Resource: '*'
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - '10.0.0.0/8'  # Replace with your IP ranges
+                  - '172.16.0.0/12'
+                  - '192.168.0.0/16'
 
   AIResource:
     Type: AWS::ApiGateway::Resource
@@ -120,42 +307,50 @@ Resources:
       RestApiId: !Ref AIAPI
       ResourceId: !Ref AIResource
       HttpMethod: POST
-      AuthorizationType: NONE
+      AuthorizationType: AWS_IAM
+      RequestValidatorId: !Ref RequestValidator
+      RequestModels:
+        application/json: !Ref RequestModel
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AIFunction.Arn}/invocations'
 
-  AIMethodOptions:
-    Type: AWS::ApiGateway::Method
+  # Request validation
+  RequestValidator:
+    Type: AWS::ApiGateway::RequestValidator
     Properties:
       RestApiId: !Ref AIAPI
-      ResourceId: !Ref AIResource
-      HttpMethod: OPTIONS
-      AuthorizationType: NONE
-      Integration:
-        Type: MOCK
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
-        RequestTemplates:
-          application/json: '{"statusCode": 200}'
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Headers: true
-            method.response.header.Access-Control-Allow-Methods: true
-            method.response.header.Access-Control-Allow-Origin: true
+      ValidateRequestBody: true
+      ValidateRequestParameters: true
+
+  RequestModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      RestApiId: !Ref AIAPI
+      ContentType: application/json
+      Schema:
+        type: object
+        required:
+          - query
+        properties:
+          query:
+            type: string
+            minLength: 1
+            maxLength: 4000
 
   APIDeployment:
     Type: AWS::ApiGateway::Deployment
-    DependsOn: [AIMethod, AIMethodOptions]
+    DependsOn: [AIMethod]
     Properties:
       RestApiId: !Ref AIAPI
-      StageName: prod
+      StageName: !Ref Environment
+      StageDescription:
+        ThrottlingBurstLimit: 1000
+        ThrottlingRateLimit: 500
+        LoggingLevel: INFO
+        DataTraceEnabled: true
+        MetricsEnabled: true
 
   LambdaPermission:
     Type: AWS::Lambda::Permission
@@ -163,7 +358,7 @@ Resources:
       FunctionName: !Ref AIFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub '${AIAPI}/*/POST/ai'
+      SourceArn: !Sub '${AIAPI}/*/*'
 
 Outputs:
   KnowledgeBaseBucket:
@@ -174,6 +369,12 @@ Outputs:
 
   AIAPIEndpoint:
     Description: AI API Gateway endpoint
-    Value: !Sub 'https://${AIAPI}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Value: !Sub 'https://${AIAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-AIAPIEndpoint'
+
+  KMSKeyId:
+    Description: KMS Key ID for encryption
+    Value: !Ref KMSKey
+    Export:
+      Name: !Sub '${AWS::StackName}-KMSKeyId'
