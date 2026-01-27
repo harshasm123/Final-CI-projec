@@ -71,7 +71,7 @@ log_info "Deploying AI/RAG stack with VPC security..."
 AI_STACK_NAME="pharma-ci-rag-${ENVIRONMENT}-${TIMESTAMP}"
 
 aws cloudformation deploy \
-    --template-file ai-stack.yaml \
+    --template-file ai-stack-minimal.yaml \
     --stack-name $AI_STACK_NAME \
     --parameter-overrides \
         Environment=$ENVIRONMENT \

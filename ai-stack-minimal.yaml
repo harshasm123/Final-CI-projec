@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Minimal AI Stack for Pharmaceutical CI Platform'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+
+Resources:
+  # S3 Bucket
+  KnowledgeBaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'pharma-ci-kb-${Environment}-${AWS::AccountId}'
+
+  # Lambda Role
+  AILambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: '*'
+
+  # Security Group
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Lambda security group
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  # Lambda Function
+  AIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'pharma-ci-ai-${Environment}'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt AILambdaRole.Arn
+      Timeout: 300
+      MemorySize: 1024
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds: !Ref PrivateSubnetIds
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'headers': {'Access-Control-Allow-Origin': '*'},
+                  'body': json.dumps({'message': 'AI service ready'})
+              }
+
+  # API Gateway
+  AIAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'pharma-ci-api-${Environment}'
+
+  AIResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AIAPI
+      ParentId: !GetAtt AIAPI.RootResourceId
+      PathPart: ai
+
+  AIMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AIAPI
+      ResourceId: !Ref AIResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AIFunction.Arn}/invocations'
+
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: AIMethod
+    Properties:
+      RestApiId: !Ref AIAPI
+      StageName: !Ref Environment
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AIFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub '${AIAPI}/*/*'
+
+Outputs:
+  AIAPIEndpoint:
+    Value: !Sub 'https://${AIAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
