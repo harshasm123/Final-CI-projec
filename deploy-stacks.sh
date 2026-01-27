@@ -50,7 +50,7 @@ echo ""
 
 # Skip VPC deployment - use existing VPC
 log_info "Using existing VPC infrastructure..."
-VPC_STACK_NAME="pharma-ci-vpc-${ENVIRONMENT}"
+VPC_STACK_NAME="pharma-ci-vpc-prod-1769535728"
 
 # Get VPC outputs
 VPC_ID=$(aws cloudformation describe-stacks \
