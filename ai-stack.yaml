@@ -277,18 +277,6 @@ Resources:
       EndpointConfiguration:
         Types:
           - REGIONAL
-      Policy:
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: execute-api:Invoke
-            Resource: '*'
-            Condition:
-              IpAddress:
-                aws:SourceIp:
-                  - '10.0.0.0/8'  # Replace with your IP ranges
-                  - '172.16.0.0/12'
-                  - '192.168.0.0/16'
 
   AIResource:
     Type: AWS::ApiGateway::Resource
